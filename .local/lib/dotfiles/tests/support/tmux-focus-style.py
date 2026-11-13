@@ -1307,10 +1307,87 @@ class LeafStyleTest(unittest.TestCase):
         # successor of a pane is never itself.
         self.tmux("new-session", "-d", "-t", "build", "-s", "build-peer")
         self.tmux("set-option", "-p", "-t", work_waiting, "@term_notify_pending", "waiting")
-        listed = self.client_format(client, "#{E:@attention_panes}").split()
-        self.assertEqual([build, work_waiting], listed)
+        self.assertEqual([build, work_waiting], self.attention_panes(client))
         jump(work_waiting, "work", "a grouped session does not repeat the pane")
         jump(build, "build", "and the cycle returns to the grouped window")
+
+        # Glob characters in a name match only that name: w[1] still counts
+        # its shared window (a glob would not match it), and a* with a peer
+        # a*b counts its window once (a glob would match both).
+        self.tmux("set-option", "-pu", "-t", build, "@term_notify_pending")
+        self.tmux("set-option", "-pu", "-t", work_waiting, "@term_notify_pending")
+        bracket = self.new_session("w[1]", "codex")
+        self.tmux("new-session", "-d", "-t", "w[1]", "-s", "w[1]-peer")
+        star = self.new_session("a*", "codex")
+        self.tmux("new-session", "-d", "-t", "a*", "-s", "a*b")
+        self.tmux("set-option", "-p", "-t", bracket, "@term_notify_pending", "waiting")
+        self.tmux("set-option", "-p", "-t", star, "@term_notify_pending", "waiting")
+        self.assertEqual(sorted([bracket, star]), sorted(self.attention_panes(client)))
+        # Both are reachable, in tmux's session order; tmux picks the most
+        # recently active session of each group.
+        groups = {star: ("a*", "a*b"), bracket: ("w[1]", "w[1]-peer")}
+        visited = []
+        for _ in groups:
+            before = self.client_view(client)[1]
+            self.press(client, b"a")
+            wait_until(lambda b=before: self.client_view(client)[1] != b, "the jump moves on")
+            session, pane = self.client_view(client)
+            self.assertIn(pane, groups)
+            self.assertIn(session, groups[pane])
+            visited.append(pane)
+        self.assertEqual(set(groups), set(visited))
+
+    def attention_panes(self, client: Client) -> list[str]:
+        """Return prefix a's list as pane ids; entries are :@window.%pane."""
+        entries = self.client_format(client, "#{E:@attention_panes}").split()
+        for entry in entries:
+            self.assertRegex(entry, r"^:@[0-9]+\.%[0-9]+$")
+        return [entry.rpartition(".")[2] for entry in entries]
+
+    def test_prefix_a_leaves_other_clients_where_they_are(self) -> None:
+        """A jump within a grouped session must not move a peer's client."""
+        mine = Client(self)
+        self.clients.append(mine)
+        mine.set_focus(True)
+        theirs = Client(self)
+        self.clients.append(theirs)
+        self.tmux("new-session", "-d", "-t", "focus", "-s", "peer")
+        # The other client looks at a window of its own, so it never sees
+        # this client's menu (tmux 3.8 draws a menu on its window).
+        theirs_pane = self.tmux(
+            "new-window", "-d", "-t", "peer:", "-P", "-F", "#{window_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertRegex(theirs_pane, r"^@[0-9]+$", "tmux returned no window id")
+        self.tmux("select-window", "-t", f"peer:{theirs_pane}")
+        self.tmux("switch-client", "-c", theirs.tty, "-t", "peer")
+        wait_until(lambda: self.client_view(theirs)[0] == "peer", "the other client on the peer")
+        target = self.tmux(
+            "new-window",
+            "-d",
+            "-t",
+            "focus:",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        self.assertRegex(target, r"^%[0-9]+$", "tmux returned no pane id")
+        their_window = self.client_format(theirs, "#{window_id}")
+        self.tmux("set-option", "-p", "-t", target, "@term_notify_pending", "waiting")
+        # Jump from the pane menu while the other client types: a key chosen in
+        # a menu does not count as activity on tmux 3.2 and 3.4, so the peer is
+        # then the most recently active session, the one tmux would pick for a
+        # bare pane id.
+        mine.send(b"\x02>")
+        self.wait_drawn(mine, b"Jump to the next pane", "the pane menu opens")
+        theirs.send(b"x")
+        theirs.pump(0.2)
+        mine.send(b"a")
+        wait_until(lambda: self.client_view(mine) == ("focus", target), "the jump lands here")
+        self.assertEqual(
+            ("peer", their_window),
+            (self.client_view(theirs)[0], self.client_format(theirs, "#{window_id}")),
+        )
 
     def test_status_names_other_sessions_needing_attention(self) -> None:
         client = Client(self)
@@ -1339,8 +1416,8 @@ class LeafStyleTest(unittest.TestCase):
         self.assertEqual("#[fg=#8badc1]build#[fg=#ff5370]● ", indicator())
         # Each session gets its own entry, in the order tmux lists sessions
         # (by name before tmux 3.8); a # in a name cannot style the bar, and a
-        # long name is cut short.
-        odd = self.new_session("x#[bold]-and-a-long-tail")
+        # name wider than 12 columns is cut to 12 with its ellipsis.
+        odd = self.new_session("x#y-and-a-long-tail")
         self.tmux("set-option", "-p", "-t", odd, "@term_notify_pending", "blocked")
 
         def entries() -> dict[str, str]:
@@ -1349,7 +1426,7 @@ class LeafStyleTest(unittest.TestCase):
             self.assertEqual(shown, "".join(f"#[fg=#8badc1]{n}#[fg={c}]● " for n, c in found))
             return dict(found)
 
-        self.assertEqual({"build": "#ff5370", "x##[bold]-and…": "#ff5370"}, entries())
+        self.assertEqual({"build": "#ff5370", "x##y-and-a-l…": "#ff5370"}, entries())
         # A grouped peer shares build's windows, so the group shows once, even
         # after a window opened from the peer lists the peer first...
         self.tmux("new-session", "-d", "-t", "build", "-s", "build-peer")
@@ -1363,19 +1440,21 @@ class LeafStyleTest(unittest.TestCase):
             wait_until(lambda h=home: self.client_view(client)[0] == h, f"client on {home}")
             # The client's first session is another session now, and shows.
             self.assertEqual(
-                {"focus": "#22da6e", "x##[bold]-and…": "#ff5370"},
+                {"focus": "#22da6e", "x##y-and-a-l…": "#ff5370"},
                 entries(),
                 f"a session grouped with {home} never shows its windows",
             )
         self.tmux("switch-client", "-c", client.tty, "-t", "focus")
         wait_until(lambda: self.client_view(client)[0] == "focus", "client back home")
-        # The bar renders it, bounded, before the date. tmux without a UTF-8
-        # locale (Alpine CI) stores the ellipsis in the option as _.
-        self.assertRegex(
-            self.tmux("show-options", "-gv", "status-right").stdout,
-            re.escape("#{=/36/")
-            + "[…_]"
-            + re.escape(":#{E:@other_sessions_attention}} #[fg=#637777]%a"),
+        # The bar renders it before the date. -u: tmux stores the label's
+        # ellipsis as given but shows it as _ without a UTF-8 locale.
+        self.assertIn(
+            "#{E:@other_sessions_attention} #[fg=#637777]%a",
+            self.tmux("-u", "show-options", "-gv", "status-right").stdout,
+        )
+        self.assertIn(
+            "#{=/11/…:session_name}",
+            self.tmux("-u", "show-options", "-gv", "@session_attention_label").stdout,
         )
         rendered = client.redraw().decode(errors="replace")
         self.assertIn("build", rendered)
@@ -1383,6 +1462,36 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("set-option", "-pu", "-t", nested, "@termnav_child_attention")
         self.tmux("set-option", "-pu", "-t", odd, "@term_notify_pending")
         self.assertEqual("", indicator(), "the entry goes once nothing needs attention")
+
+    def test_status_keeps_the_most_severe_sessions(self) -> None:
+        """Past three sessions the list keeps red, then yellow, and counts the rest."""
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+        kinds = {
+            "g1": "done",
+            "g2": "done",
+            "twelve-chars": "waiting",
+            "r1": "blocked",
+            "y2": "waiting",
+        }
+        for name, kind in kinds.items():
+            pane = self.new_session(name, "codex")
+            self.tmux("set-option", "-p", "-t", pane, "@term_notify_pending", kind)
+        shown = self.client_format(client, "#{E:@other_sessions_attention}")
+        found = re.findall(r"#\[fg=#8badc1\]([^#]*)#\[fg=(#[0-9a-f]{6})\]● ", shown)
+        # Whole entries only: red first, then the first two yellows in
+        # session order, and a 12-column name is not cut.
+        self.assertEqual("#ff5370", found[0][1], shown)
+        self.assertEqual({"r1", "twelve-chars", "y2"}, {name for name, _ in found}, shown)
+        self.assertEqual(["#ff5370", "#ffcb6b", "#ffcb6b"], [color for _, color in found])
+        self.assertTrue(shown.endswith("#[fg=#8badc1]+2 "), shown)
+        # With three or fewer there is no count.
+        self.tmux("kill-session", "-t", "g1")
+        self.tmux("kill-session", "-t", "g2")
+        shown = self.client_format(client, "#{E:@other_sessions_attention}")
+        self.assertNotIn("+", shown)
+        self.assertEqual(3, shown.count("● "), shown)
 
     def test_ctrl_shift_b_sends_the_prefix_inward(self) -> None:
         """Ctrl-Shift-B, as WezTerm and VS Code send it, is the inner prefix."""
@@ -1458,8 +1567,43 @@ class LeafStyleTest(unittest.TestCase):
             lambda: self.client_format(client, "#{client_prefix}") == "1",
             "C-b turns this tmux's prefix on",
         )
-        client.send(b"\x1b")
+        # Leave the prefix by command: tmux 3.8 holds a lone Escape until
+        # more input arrives, which would swallow the next chord's ESC.
+        self.tmux("switch-client", "-c", client.tty, "-T", "root")
         client.pump(0.1)
+        # Over a pane that is neither a nested tmux nor a remote session, such
+        # as an agent, the chord turns on this tmux's own prefix and the pane
+        # receives no C-b.
+        tools = self.root / "programs"
+        tools.mkdir(exist_ok=True)
+        agent_program = tools / "claude"
+        cat = shutil.which("cat")
+        self.assertIsNotNone(cat, "cat is required")
+        shutil.copy2(str(cat), agent_program)
+        agent = self.tmux(
+            "new-window", "-P", "-F", "#{pane_id}", shlex.join([str(agent_program), "-v"])
+        ).stdout.strip()
+        self.assertRegex(agent, r"^%[0-9]+$", "tmux returned no pane id")
+        wait_until(
+            lambda: self.client_view(client) == ("focus", agent), "the agent pane is current"
+        )
+        client.send(b"\x1b[98;6u")
+        wait_until(
+            lambda: self.client_format(client, "#{client_prefix}") == "1",
+            "Ctrl-Shift-B turns this tmux's prefix on over the agent",
+        )
+        # Leave the prefix by command: tmux 3.8 holds a lone Escape until
+        # more input arrives, which would swallow the next chord's ESC.
+        self.tmux("switch-client", "-c", client.tty, "-T", "root")
+        client.pump(0.1)
+        client.send(b"zq\r")
+        wait_until(
+            lambda: "zq" in self.tmux("capture-pane", "-p", "-t", agent).stdout,
+            "typing reaches the agent",
+        )
+        self.assertNotIn("^B", self.tmux("capture-pane", "-p", "-t", agent).stdout)
+        self.tmux("select-window", "-t", nested)
+        wait_until(lambda: self.client_view(client) == ("focus", nested), "back on the nested pane")
         # Unbound, the chord would pass through as itself: the nested tmux
         # opens nothing, and the typed text reaches its pane.
         self.tmux("unbind-key", "-n", "C-S-b")

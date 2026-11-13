@@ -384,7 +384,7 @@ if command -v tmux >/dev/null 2>&1; then
       'Paste from the clipboard' \
       "Paste the last command output into this window's agent" \
       'Open the command palette' 'Open the pane menu' 'Open the window menu' \
-      'Send the prefix to the nested tmux'; do
+      "Send the prefix to a nested or remote tmux, else start this one's"; do
       _assert_contains "tmux: help shows $description" "$description" "$help_keys"
     done
     copy_keys=$(tmux_cmd list-keys -T copy-mode-vi)
@@ -643,10 +643,13 @@ if command -v tmux >/dev/null 2>&1; then
     tmux_cmd kill-pane -t "$marks_pane"
     _assert_contains 'tmux: runtime prefix a jumps to the next pane needing attention' \
       '@attention_next' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "a"')"
-    # Ctrl-Shift-B types the prefix into the pane for a nested tmux. Older
-    # tmux lists the chord as S-C-b.
-    _assert_eq 'tmux: runtime Ctrl-Shift-B sends the prefix inward' send-prefix \
-      "$(printf '%s\n' "$root_keys" | awk '$4 == "C-S-b" || $4 == "S-C-b" { print $5 }')"
+    # Ctrl-Shift-B types the prefix into a nested or remote tmux and starts
+    # this tmux's own prefix elsewhere. Older tmux lists the chord as S-C-b.
+    ctrl_shift_b=$(printf '%s\n' "$root_keys" | awk '$4 == "C-S-b" || $4 == "S-C-b"')
+    _assert_contains 'tmux: runtime Ctrl-Shift-B sends the prefix inward' send-prefix \
+      "$ctrl_shift_b"
+    _assert_contains 'tmux: runtime Ctrl-Shift-B starts the prefix elsewhere' \
+      'switch-client -T prefix' "$ctrl_shift_b"
     # Every session counts, so a pane elsewhere switches the client there.
     _assert_contains 'tmux: runtime prefix a walks every session' \
       '#{S:#{W:' "$(tmux_cmd show-options -gv @attention_panes)"
@@ -1240,7 +1243,9 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_sticky_attention_ends_with_its_agent \
     test_prefix_a_visits_pending_panes_in_order \
     test_prefix_a_jumps_across_sessions \
+    test_prefix_a_leaves_other_clients_where_they_are \
     test_status_names_other_sessions_needing_attention \
+    test_status_keeps_the_most_severe_sessions \
     test_ctrl_shift_b_sends_the_prefix_inward \
     test_background_window_agents_mark_their_tab \
     test_another_focused_client_does_not_strand_a_mark \
