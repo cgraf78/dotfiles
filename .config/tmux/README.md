@@ -351,9 +351,10 @@ Ctrl-Shift-B is a one-key prefix for the next tmux in. Over a pane running a
 nested tmux or a remote session (SSH, mosh, ET), it types this tmux's prefix,
 `C-b`, into the pane, so the tmux inside takes the next key as its own prefix
 command (Ctrl-Shift-B then `c` opens a window there). Over anything else, such
-as a shell or an agent, it turns on this tmux's own prefix, so an agent never
-receives a stray `C-b` (Claude Code reads it as moving the task to the
-background). The check reads the pane's command, as the palette does, but
+as a shell or an agent, or while the pane is in a mode such as copy mode, it
+turns on this tmux's own prefix, so an agent never receives a stray `C-b`
+(Claude Code reads it as moving the task to the background) and copy mode
+does not page up. The check reads the pane's command, as the palette does, but
 ignores mouse reporting. A remote session started through a wrapper that
 tmux reports under another name (a sandbox, an interpreter) gets this tmux's
 prefix rather than the inner one. tmux sees the chord only when the terminal

@@ -1526,6 +1526,40 @@ class LeafStyleTest(unittest.TestCase):
         shown = self.client_format(client, "#{E:@other_sessions_attention}")
         self.assertNotIn("+", shown)
         self.assertEqual(3, shown.count("● "), shown)
+        # +N counts exactly up to twelve hidden sessions, and +12+ means more.
+        for index in range(12):
+            pane = self.new_session(f"n{index:02d}")
+            self.tmux("set-option", "-p", "-t", pane, "@term_notify_pending", "done")
+        shown = self.client_format(client, "#{E:@other_sessions_attention}")
+        self.assertTrue(shown.endswith("#[fg=#8badc1]+12 "), shown)
+        self.assertEqual(3, shown.count("● "), shown)
+        pane = self.new_session("n12")
+        self.tmux("set-option", "-p", "-t", pane, "@term_notify_pending", "done")
+        shown = self.client_format(client, "#{E:@other_sessions_attention}")
+        self.assertTrue(shown.endswith("#[fg=#8badc1]+12+ "), shown)
+        # A session's color is its most severe pane's, whatever the pane order:
+        # a green pane before a red one still makes the session red, and red
+        # still leads past a run of green sessions.
+        for name in ["twelve-chars", "r1", "y2"]:
+            self.tmux("kill-session", "-t", f"={name}")
+        mixed = self.new_session("zz-mixed")
+        self.tmux("set-option", "-p", "-t", mixed, "@term_notify_pending", "done")
+        red = self.tmux(
+            "split-window",
+            "-d",
+            "-t",
+            mixed,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        self.assertRegex(red, r"^%[0-9]+$", "tmux returned no pane id")
+        self.tmux("set-option", "-p", "-t", red, "@term_notify_pending", "blocked")
+        shown = self.client_format(client, "#{E:@other_sessions_attention}")
+        found = re.findall(r"#\[fg=#8badc1\]([^#]*)#\[fg=(#[0-9a-f]{6})\]● ", shown)
+        self.assertEqual(("zz-mixed", "#ff5370"), found[0], shown)
+        self.assertEqual(["#22da6e", "#22da6e"], [color for _, color in found[1:]], shown)
 
     def test_ctrl_shift_b_sends_the_prefix_inward(self) -> None:
         """Ctrl-Shift-B, as WezTerm and VS Code send it, is the inner prefix."""
@@ -1590,6 +1624,31 @@ class LeafStyleTest(unittest.TestCase):
             outer_windows.stdout,
             self.tmux("display-message", "-p", "-t", nested, "#{session_windows}").stdout,
         )
+
+        # In a mode such as copy mode the pane would take the C-b itself (page
+        # up in copy-mode-vi), so the chord starts this tmux's prefix instead,
+        # also with modes stacked, where pane_in_mode counts past one.
+        def nested_modes():
+            return self.tmux(
+                "display-message", "-p", "-t", nested, "#{pane_in_mode}"
+            ).stdout.strip()
+
+        for mode in ["copy-mode", "choose-tree"]:
+            self.tmux(mode, "-t", nested)
+            depth = "1" if mode == "copy-mode" else "2"
+            wait_until(
+                lambda depth=depth: nested_modes() == depth, f"the nested pane enters {mode}"
+            )
+            client.send(b"\x1b[98;6u")
+            wait_until(
+                lambda: self.client_format(client, "#{client_prefix}") == "1",
+                f"Ctrl-Shift-B starts this tmux's prefix at mode depth {depth}",
+            )
+            self.tmux("switch-client", "-c", client.tty, "-T", "root")
+            self.assertEqual("2", inner_windows())
+            self.assertEqual(depth, nested_modes())
+        self.tmux("copy-mode", "-q", "-t", nested)
+        wait_until(lambda: nested_modes() == "0", "the nested pane leaves its modes")
         # The xterm modifyOtherKeys form is the same key.
         client.send(b"\x1b[27;6;98~")
         client.pump(0.1)
