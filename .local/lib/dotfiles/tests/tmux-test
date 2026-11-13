@@ -1137,6 +1137,16 @@ SH
     _assert_contains 'tmux: window switches publish attention at once' \
       'term-pane-state --socket #{q:socket_path} --session #{q:session_id}' \
       "$(tmux_cmd show-hooks -g session-window-changed)"
+    # A nested layer's lease reaches this terminal at once, and only when
+    # its counts change: the hook keys on the lease options' set-option.
+    lease_hook=$(tmux_cmd show-hooks -g after-set-option)
+    _assert_contains "tmux: a child lease's change publishes its session at once" \
+      'term-pane-state --socket #{q:socket_path} --session #{q:session_id}' "$lease_hook"
+    _assert_contains 'tmux: only a child lease set-option can publish' \
+      '#{m/r:(^| )@termnav_child_(attention|waiting)( |$),#{hook_arguments}}' "$lease_hook"
+    _assert_contains 'tmux: a lease renewal with the same counts stays process-free' \
+      '#{&&:#{session_attached},#{!=:#{s/^[0-9]+.//:#{@termnav_child_attention}}/#{s/^[0-9]+.//:#{@termnav_child_waiting}},#{@child_lease_seen}}}' \
+      "$lease_hook"
     # Every NAME=value helper in the base fragment is %hidden: a plain one
     # would be exported into every pane's environment.
     leaked=''
@@ -1230,6 +1240,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_background_window_agents_mark_their_tab \
     test_another_focused_client_does_not_strand_a_mark \
     test_view_changes_publish_their_session_at_once \
+    test_child_lease_changes_publish_their_session_at_once \
+    test_nested_attention_reaches_the_terminal_at_once \
     test_prefix_A_pastes_the_last_output_into_the_agent \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
     test_prefix_n_opens_a_task_window \
