@@ -1251,10 +1251,25 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_the_window_menu_acts_on_the_tab_clicked \
     test_option_space_opens_the_command_palette; do
     # unittest prints each case's name, its docstring and then "... ok" or
-    # "... skipped 'reason'"; a mention of the name alone proves nothing.
+    # "... skipped 'reason'"; a mention of the name alone proves nothing. A
+    # case that writes to stderr while it runs puts that text after the
+    # "... " and its result on a later line, so read on to the first line
+    # that is a result, and stop at the next case's name.
     pty_result=$(awk -v name="$pty_case" '
-      index($0, name " (") == 1 { found = 1 }
-      found && / \.\.\. / { sub(/.* \.\.\. /, ""); print; exit }
+      function result(text) {
+        if (text ~ /^(ok|FAIL|ERROR|skipped|expected failure|unexpected success)/) {
+          print text
+          exit
+        }
+      }
+      !found && index($0, name " (") == 1 {
+        found = 1
+        if (!/ \.\.\. /) next
+      }
+      !found { next }
+      !started && / \.\.\. / { started = 1; sub(/.* \.\.\. /, ""); result($0); next }
+      /^test_[A-Za-z0-9_]+ \(__main__\./ { exit }
+      started { result($0) }
     ' <<<"$pty_output")
     case $pty_result in
       ok) _pass "tmux: PTY runs $pty_case" ;;
