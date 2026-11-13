@@ -44,7 +44,7 @@ mouse=$(tmux_cmd show-options -gv mouse)
 # so these checks exercise the real formats rather than copies of them.
 detect() {
   local format
-  format=$(tmux_cmd show-environment -g "$1") || return
+  format=$(tmux_cmd show-environment -gh "$1") || return
   format=${format#*=}
   tmux_cmd display-message -p "${format//'#{pane_current_command}'/$2}"
 }
@@ -341,7 +341,7 @@ done
 # a ps-fallback assignment and undoes the config's \$ escaping.
 source_filter() {
   local line prefix program
-  line=$(printf '%s\n' "$fragment_content" | grep "^$1=" || true)
+  line=$(printf '%s\n' "$fragment_content" | grep -E "^(%hidden )?$1=" || true)
   prefix="${line%%\| awk*}| awk -v mouse='#{mouse_any_flag}' '"
   program=${line#"$prefix"}
   program=${program%\'\"}

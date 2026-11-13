@@ -256,11 +256,14 @@ for directory in \
   _assert_eq "tmux: protects resurrect directory $directory" 700 "$mode"
 done
 
+_assert_eq 'tmux: config helper variables are all %hidden' '' \
+  "$(cat "$source_home"/.config/tmux/tmux.conf "$source_home"/.config/tmux/conf.d/*.conf |
+    grep -E '^[A-Za-z_][A-Za-z0-9_]*=')"
 _assert_contains 'tmux: defines exact router origin metadata' \
   'navigate_origin_args="--client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
   "$tmux_content"
 _assert_eq 'tmux: defines router origin metadata once' 1 \
-  "$(awk '/^navigate_origin_args=/ { count++ } END { print count + 0 }' <<<"$tmux_content")"
+  "$(awk '/^(%hidden )?navigate_origin_args=/ { count++ } END { print count + 0 }' <<<"$tmux_content")"
 for direction in left right; do
   _assert_contains "tmux: routes $direction tab movement through Termnav" \
     "$termnav_hot_path tab-move $direction --parent \$navigate_origin_args" \
@@ -699,7 +702,7 @@ if command -v tmux >/dev/null 2>&1; then
     # Run the shared fragment through sh exactly as run-shell does: Termnav's
     # decline (3) at the outermost edge is a no-op, while every real failure
     # keeps its own status so tmux still reports it.
-    declined_ok=$(sed -n "s/^navigate_declined_ok='\(.*\)'\$/\1/p" "$tmux_base")
+    declined_ok=$(sed -nE "s/^(%hidden )?navigate_declined_ok='(.*)'\$/\2/p" "$tmux_base")
     for case in 0:0 1:1 2:2 3:0; do
       sh -c "(exit ${case%%:*}) $declined_ok"
       _assert_exit "tmux: Termnav route status ${case%%:*} reports ${case#*:}" \
@@ -1134,8 +1137,14 @@ SH
     _assert_contains 'tmux: window switches publish attention at once' \
       'term-pane-state --socket #{q:socket_path} --session #{q:session_id}' \
       "$(tmux_cmd show-hooks -g session-window-changed)"
-    _assert_eq 'tmux: config helper variables stay out of pane environments' '' \
-      "$(tmux_cmd show-environment -g | grep '^tmux_')"
+    # Every NAME=value helper in the base fragment is %hidden: a plain one
+    # would be exported into every pane's environment.
+    leaked=''
+    while IFS= read -r helper; do
+      # A hidden variable is found but not shown here.
+      [[ -z $(tmux_cmd show-environment -g "$helper" 2>/dev/null) ]] || leaked+=" $helper"
+    done < <(sed -nE 's/^%hidden ([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' "$tmux_base")
+    _assert_eq 'tmux: config helper variables stay out of pane environments' '' "$leaked"
     _assert_eq 'tmux: windows rename automatically' on \
       "$(tmux_cmd show-window-options -gv automatic-rename)"
     _assert_eq 'tmux: nested tmux titles its parent pane with host:session' \
