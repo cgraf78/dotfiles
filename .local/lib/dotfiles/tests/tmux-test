@@ -113,6 +113,24 @@ _assert_contains 'tmux: focus-out stops the focus watcher' \
   'termnav tmux focus stop' "$tmux_content"
 _assert_contains 'tmux: selection changes repair stale focus state' \
   'termnav tmux focus sync' "$tmux_content"
+# The status job reruns at most once a second, so view changes publish their
+# session at once. The background job's output and status must be discarded,
+# or a failing or older term-pane-state would print into a pane, and ordinary
+# navigation with nothing marked must stay process-free.
+for hook in session-window-changed window-pane-changed client-focus-in \
+  client-focus-out; do
+  _assert_contains "tmux: $hook publishes its session at once" \
+    "set-hook -g ${hook}[140] \"\$tmux_attention_view\"" "$tmux_content"
+done
+_assert_contains 'tmux: client-session-changed publishes its new session at once' \
+  "set-hook -g client-session-changed[140] \"if-shell -F '#{session_attached}' \\\"\$tmux_attention_run\\\"\"" \
+  "$tmux_content"
+_assert_contains 'tmux: view-change publishing is backgrounded and silent' \
+  "%hidden tmux_attention_run=\"run-shell -b 'term-pane-state --socket #{q:socket_path} --session #{q:session_id} >/dev/null 2>&1 || true'\"" \
+  "$tmux_content"
+_assert_contains 'tmux: view changes publish only while a pane is marked' \
+  "%hidden tmux_attention_view=\"if-shell -F '#{&&:#{session_attached},#{W:#{P:#{?#{E:@pane_marked},1,}}}}' \\\"\$tmux_attention_run\\\"\"" \
+  "$tmux_content"
 _assert_contains 'tmux: inactive panes keep the Night Owl background' \
   "set -g @termnav_inactive_style 'bg=#010d17'" "$tmux_content"
 _assert_contains 'tmux: active panes use the brighter Night Owl background' \
@@ -238,11 +256,14 @@ for directory in \
   _assert_eq "tmux: protects resurrect directory $directory" 700 "$mode"
 done
 
+_assert_eq 'tmux: config helper variables are all %hidden' '' \
+  "$(cat "$source_home"/.config/tmux/tmux.conf "$source_home"/.config/tmux/conf.d/*.conf |
+    grep -E '^[A-Za-z_][A-Za-z0-9_]*=')"
 _assert_contains 'tmux: defines exact router origin metadata' \
   'navigate_origin_args="--client-pid #{client_pid} --client-tty #{q:client_tty} --client-created #{client_created} --client-termtype #{q:client_termtype} --source-socket #{q:socket_path} --source-pane #{pane_id} --source-session #{q:session_id}"' \
   "$tmux_content"
 _assert_eq 'tmux: defines router origin metadata once' 1 \
-  "$(awk '/^navigate_origin_args=/ { count++ } END { print count + 0 }' <<<"$tmux_content")"
+  "$(awk '/^(%hidden )?navigate_origin_args=/ { count++ } END { print count + 0 }' <<<"$tmux_content")"
 for direction in left right; do
   _assert_contains "tmux: routes $direction tab movement through Termnav" \
     "$termnav_hot_path tab-move $direction --parent \$navigate_origin_args" \
@@ -681,7 +702,7 @@ if command -v tmux >/dev/null 2>&1; then
     # Run the shared fragment through sh exactly as run-shell does: Termnav's
     # decline (3) at the outermost edge is a no-op, while every real failure
     # keeps its own status so tmux still reports it.
-    declined_ok=$(sed -n "s/^navigate_declined_ok='\(.*\)'\$/\1/p" "$tmux_base")
+    declined_ok=$(sed -nE "s/^(%hidden )?navigate_declined_ok='(.*)'\$/\2/p" "$tmux_base")
     for case in 0:0 1:1 2:2 3:0; do
       sh -c "(exit ${case%%:*}) $declined_ok"
       _assert_exit "tmux: Termnav route status ${case%%:*} reports ${case#*:}" \
@@ -1113,6 +1134,17 @@ SH
       _assert_contains "tmux: $hook clears the acknowledged exit status" \
         'set-option -pu @term_notify_exit_status' "$(tmux_cmd show-hooks -g "$hook")"
     done
+    _assert_contains 'tmux: window switches publish attention at once' \
+      'term-pane-state --socket #{q:socket_path} --session #{q:session_id}' \
+      "$(tmux_cmd show-hooks -g session-window-changed)"
+    # Every NAME=value helper in the base fragment is %hidden: a plain one
+    # would be exported into every pane's environment.
+    leaked=''
+    while IFS= read -r helper; do
+      # A hidden variable is found but not shown here.
+      [[ -z $(tmux_cmd show-environment -g "$helper" 2>/dev/null) ]] || leaked+=" $helper"
+    done < <(sed -nE 's/^%hidden ([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' "$tmux_base")
+    _assert_eq 'tmux: config helper variables stay out of pane environments' '' "$leaked"
     _assert_eq 'tmux: windows rename automatically' on \
       "$(tmux_cmd show-window-options -gv automatic-rename)"
     _assert_eq 'tmux: nested tmux titles its parent pane with host:session' \
@@ -1197,6 +1229,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_prefix_a_visits_pending_panes_in_order \
     test_background_window_agents_mark_their_tab \
     test_another_focused_client_does_not_strand_a_mark \
+    test_view_changes_publish_their_session_at_once \
     test_prefix_A_pastes_the_last_output_into_the_agent \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
     test_prefix_n_opens_a_task_window \

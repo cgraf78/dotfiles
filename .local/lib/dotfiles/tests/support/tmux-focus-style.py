@@ -1042,6 +1042,111 @@ class LeafStyleTest(unittest.TestCase):
         first.set_focus(True)
         wait_until(lambda: self.pending(self.active) == "", "pending cleared on client refocus")
 
+    def test_view_changes_publish_their_session_at_once(self) -> None:
+        """The terminal's attention must not wait for the deduplicated status job."""
+        # A stand-in publisher records session publishes (the status job uses
+        # the --client form) and fails noisily: a background run-shell would
+        # print its output into a pane unless the hook discards it.
+        publisher = self.root / "publisher"
+        publisher.mkdir()
+        published = self.root / "published"
+        stub = publisher / "term-pane-state"
+        stub.write_text(
+            "#!/bin/sh\n"
+            'case " $* " in *" --session "*) printf "%s\\n" "$*" >>'
+            + shlex.quote(str(published))
+            + " ;; esac\necho noise\necho noise >&2\nexit 1\n"
+        )
+        stub.chmod(0o700)
+        self.tmux("set-environment", "-g", "PATH", f"{publisher}:{self.environment['PATH']}")
+
+        def runs() -> list[str]:
+            try:
+                return published.read_text().splitlines()
+            except FileNotFoundError:
+                return []
+
+        def publishes(session: str, description: str, change) -> None:
+            before = len(runs())
+            change()
+            wait_until(lambda: len(runs()) > before, description, timeout=2.0)
+            self.assertEqual({f"--socket {self.socket} --session {session}"}, set(runs()[before:]))
+
+        def stays_quiet(description: str, change) -> None:
+            before = len(runs())
+            change()
+            time.sleep(0.5)
+            self.assertEqual(before, len(runs()), description)
+
+        client = Client(self)
+        self.clients.append(client)
+
+        def modes() -> list[str]:
+            listing = self.tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_mode}").stdout
+            return [line.split()[0] for line in listing.splitlines() if len(line.split()) > 1]
+
+        # The fixture HOME has none of the config's startup helpers, whose
+        # load-time run-shell failures already opened view mode; start clean.
+        for pane in modes():
+            self.tmux("send-keys", "-t", pane, "-X", "cancel")
+        self.assertEqual([], modes())
+        session = self.tmux("display-message", "-p", "#{session_id}").stdout.strip()
+        self.tmux("new-window", "-d", "-t", "focus:", "sleep 30")
+        # Termnav switches tabs with next-window from its own tmux client.
+        # Without a marked pane, focus cannot change any snapshot: no process.
+        stays_quiet("unmarked next-window", lambda: self.tmux("next-window", "-t", "focus"))
+        stays_quiet("unmarked select-window", lambda: self.tmux("select-window", "-t", "focus:^"))
+        stays_quiet("unmarked select-pane", lambda: self.tmux("select-pane", "-t", self.inactive))
+        # A mark in a window these switches never visit keeps the guard true.
+        marked = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "focus:", "sleep 30"
+        ).stdout.strip()
+        self.tmux("set-option", "-p", "-t", marked, "@term_notify_pending", "done")
+        publishes(
+            session, "publish on next-window", lambda: self.tmux("next-window", "-t", "focus")
+        )
+        publishes(
+            session, "publish on select-window", lambda: self.tmux("select-window", "-t", "focus:^")
+        )
+        publishes(
+            session, "publish on select-pane", lambda: self.tmux("select-pane", "-t", self.active)
+        )
+        if self.supports_hook("client-focus-in"):
+            publishes(session, "publish on focus-out", lambda: client.set_focus(False))
+            publishes(session, "publish on focus-in", lambda: client.set_focus(True))
+        # Visiting the only marked pane acknowledges it before the guard above
+        # runs; the acknowledgement itself must publish the cleared mark.
+        self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "done")
+        self.tmux("set-option", "-pu", "-t", marked, "@term_notify_pending")
+        publishes(
+            session,
+            "publish on visiting the only marked pane",
+            lambda: self.tmux("select-pane", "-t", self.inactive),
+        )
+        self.assertEqual("", self.pending(self.inactive))
+        self.tmux("set-option", "-p", "-t", marked, "@term_notify_pending", "done")
+        publishes(
+            session,
+            "publish on visiting the only marked window",
+            lambda: self.tmux("select-window", "-t", marked),
+        )
+        self.assertEqual("", self.pending(marked))
+        self.tmux("select-window", "-t", "focus:^")
+        self.tmux("set-option", "-p", "-t", marked, "@term_notify_pending", "done")
+        # A new session needs its whole snapshot, marked or not.
+        other = self.tmux(
+            "new-session", "-d", "-P", "-F", "#{session_id}", "-s", "other", "sleep 30"
+        ).stdout.strip()
+        publishes(
+            other,
+            "publish on switch-client",
+            lambda: self.tmux("switch-client", "-c", client.tty, "-t", other),
+        )
+        # The first session is now detached: its changes start no process.
+        stays_quiet("detached next-window", lambda: self.tmux("next-window", "-t", session))
+        self.assertEqual("done", self.pending(marked))
+        self.assertEqual([], modes())
+
     def current_pane(self, client: Client) -> str:
         return self.tmux("display-message", "-c", client.tty, "-p", "#{pane_id}").stdout.strip()
 
