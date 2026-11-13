@@ -393,6 +393,20 @@ _clip_equal "$payload" "$copy_log"
 _assert_exit "a failed history record still publishes the exact bytes" 0 "$?"
 _assert_contains "a failed history record is reported to the client" \
   'could not record it' "$(cat "$test_root/tmux-log")"
+# A direct copy still copies too, but its caller learns of the lost record.
+rm -f "$copy_log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/record-fails-direct" \
+  CLIP_TEST_COPY_LOG="$copy_log" "$clip" copy <"$payload" 2>"$test_root/record-error"
+record_status=$?
+if ((record_status != 0)); then
+  _pass "a direct copy with a failed history record exits nonzero"
+else
+  _fail "a direct copy with a failed history record exits nonzero"
+fi
+_clip_equal "$payload" "$copy_log"
+_assert_exit "a direct copy with a failed history record still copies the exact bytes" 0 "$?"
+_assert_contains "a direct copy with a failed history record says so" \
+  'could not record it' "$(cat "$test_root/record-error")"
 rm -f "$backend_bin/mv"
 
 printf 'unchanged workstation clipboard' >"$copy_log"
