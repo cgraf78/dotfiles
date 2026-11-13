@@ -1,0 +1,5 @@
+Makefile:
+
+all:
+	gcc -O2 -Wall -Wextra -o program main.c util.c parse.c
+	./program --run-the-tests

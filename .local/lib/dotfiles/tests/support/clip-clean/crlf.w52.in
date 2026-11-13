@@ -1,0 +1,6 @@
+● Run:
+
+  ./configure --prefix=/usr/local --enable-shared \
+  --with-bar
+  some prose that is long enough to wrap at this
+  width here

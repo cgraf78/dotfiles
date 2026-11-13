@@ -120,8 +120,9 @@ _entries() {
   ((${#candidates[@]})) || return 0
   # One chmod for the whole history keeps every copy as fast with 200 entries
   # as with one; only a failure needs the pass that tells an entry pruned
-  # since the listing from a real error.
-  if chmod 600 -- "${candidates[@]/#/$CLIP_DIR/}" 2>/dev/null; then
+  # since the listing from a real error. No `--`: BSD, BusyBox and POSIX
+  # getopt stop at the mode, so it would name a file; the paths are absolute.
+  if chmod 600 "${candidates[@]/#/$CLIP_DIR/}" 2>/dev/null; then
     ENTRIES=("${candidates[@]}")
     return 0
   fi

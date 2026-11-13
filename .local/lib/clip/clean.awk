@@ -54,7 +54,11 @@ BEGIN {
   nlines = 0
 }
 
-{ raw[++nlines] = $0 }
+# A selection from a Windows tool may end its lines with CR.
+{
+  sub(/\r$/, "")
+  raw[++nlines] = $0
+}
 
 END {
   if (invalid) exit 2
@@ -95,13 +99,17 @@ END {
     # 0 before any marker, 1 in a reply, 2 in a prompt echo.
     block[i] = kind
     text[i] = t
+    # Tabs come from programs, never from a TUI's wrapping: such a row is
+    # taken as it is.
+    tabbed[i] = (raw[i] ~ /\t/)
+    spaced[i] = (raw[i] ~ / $/)
     blank[i] = (t ~ /^[ \t]*$/)
     if (blank[i]) intool = 0
     output[i] = intool
     ind[i] = blank[i] ? 0 : match(t, /[^ ]/) - 1
     body[i] = substr(t, ind[i] + 1)
     cind[i] = ind[i]
-    if (match(body[i], /^([-*+]|[0-9]+[.)]) +/)) cind[i] = ind[i] + RLENGTH
+    if (match(body[i], /^([-*+]|[0-9]+[.)]|[a-z][.)]) +/)) cind[i] = ind[i] + RLENGTH
   }
 
   # A first line that starts mid-row, which tmux reports as its column, has
@@ -116,9 +124,8 @@ END {
   out = 0
   for (i = 1; i <= nlines; i++) {
     if (i > 1 && joins(i - 1, i)) {
-      sep = joiner(i - 1, i)
       sub(/[ \t]+$/, "", line[out])
-      line[out] = line[out] sep body[i]
+      line[out] = line[out] SEP body[i]
       if (cont < 0) cont = ind[i]
       continue
     }
@@ -137,11 +144,13 @@ END {
   }
 }
 
-# Decide whether row b continues row a.
-function joins(a, b,    sep) {
+# Decide whether row b continues row a, and set SEP to the text that goes
+# between them. A missed join leaves a break the user can see; a wrong one
+# silently corrupts copied code or commands. So every doubt keeps the break.
+function joins(a, b,    last, nextcp, tl, tn) {
   # Agent rows keep a margin of at least two columns; shell output and the
   # context lines of a diff start further left.
-  if (blank[a] || blank[b] || ind[b] < 2) return 0
+  if (blank[a] || blank[b] || ind[b] < 2 || tabbed[a] || tabbed[b]) return 0
   # A row wider than the pane was soft-wrapped by tmux and is already whole.
   if (w[a] > eff[a]) return 0
   # Tool output is records (log lines, git log, test results) whose length
@@ -160,9 +169,65 @@ function joins(a, b,    sep) {
          (block[start] == 0 && ind[start] != base))) return 0
   }
   if (a == start && !(a == 1 && mid) && parallel(body[a], body[b])) return 0
+  # Code and commands sit at the same margin as prose in a reply, but their
+  # line breaks are their own.
+  if (code(body[a]) || code(body[b])) return 0
   unit(body[b])
-  sep = (UCJK || cjk(lastcp(body[a])) || breaks_after(body[a])) ? 0 : 1
-  return w[a] + sep + UW > eff[a]
+  last = lastcp(body[a])
+  decode(body[b], 1)
+  nextcp = CP
+  # CJK wraps between any two characters, without a space.
+  if (cjk(last) && cjk(nextcp)) {
+    SEP = ""
+    return w[a] + UW > eff[a]
+  }
+  tl = body[a]
+  sub(/.* /, "", tl)
+  tn = body[b]
+  sub(/ .*/, "", tn)
+  # A row can end inside a word only where Claude cuts a long URL or path at
+  # the last column, or Codex breaks after a hyphen or slash. Rejoin it
+  # without a space only if the next row continues the same path; a row
+  # ending that way before anything else keeps its break.
+  if (breaks_after(tl) || (w[a] == eff[a] && pathlike(tl))) {
+    if (spaced[a] || !pathlike(tn)) return 0
+    SEP = ""
+    return w[a] + UW > eff[a]
+  }
+  # A word wrap: the first word of row b could not have fit on row a.
+  SEP = " "
+  return w[a] + 1 + UW > eff[a]
+}
+
+# A token from a URL, path, address or dotted identifier.
+function pathlike(t) {
+  return t ~ /[\/\\_=&?#%~@]/ || (length(t) >= 6 && t ~ /[A-Za-z0-9][.:][a-z0-9]/)
+}
+
+# Whether a row reads as code or a command rather than prose. Words common
+# in English (if, for, return, make) count only in a code-like shape. The
+# brackets hold no escapes: POSIX, and so BusyBox, read a backslash in a
+# bracket expression literally.
+function code(s) {
+  if (s ~ /^(const|let|var) [A-Za-z_$][A-Za-z0-9_$]* *([=:;]|$)/) return 1
+  if (s ~ /^(def|class|fn|func|function) [A-Za-z_][A-Za-z0-9_]* *[(:{<]/) return 1
+  if (s ~ /^(if|elif|while|for|switch|until|catch) *[([]/) return 1
+  if (s ~ /^for [A-Za-z_][A-Za-z0-9_]* in / || s ~ /^(if|while) .*(:| then| do)$/) return 1
+  if (s ~ /^return( [^ ]+)?;?$/ || s ~ /^(else|try|finally|do|then|fi|done|esac)[:;{ ]*$/) return 1
+  if (s ~ /^from [A-Za-z_.]+ import / || s ~ /^import [A-Za-z_.]+(,| as |;|$)/) return 1
+  if (s ~ /^export ([A-Z_][A-Z0-9_]*=|default |const |function |class )/) return 1
+  if (s ~ /^([]})]|#include|#!|@[A-Za-z]|\/\/|\/\*|<[A-Za-z!]|<\/)/) return 1
+  # YAML and JSON keys.
+  if (s ~ /^[a-z_][a-z0-9_-]*:( |$)/ || s ~ /^"[^"]*": /) return 1
+  # Assignments, comparisons and arrows.
+  if (s ~ / ([-+*\/%|&^:!<>=]?=|=>|->) /) return 1
+  if (s ~ /[;{}\\([]$/ || s ~ /["'`]$/) return 1
+  if (s ~ /[),]$/ && s ~ /[([{"'=]/) return 1
+  # Commands.
+  if (s ~ /^(\.\.?\/|~\/)[^ ]* -/) return 1
+  if (s ~ /^(\$ |(sudo|git|rsync|ssh|scp|docker|kubectl|npm|npx|pnpm|yarn|pip|pip3|cargo|brew|apt|apt-get|dnf|yum|curl|wget|tmux|rg|grep|sed|awk|chmod|chown|mkdir|rm|cp|mv|ls|cd|python|python3|node|echo|printf|cat|tar|ln|systemctl|journalctl|clip) )/)
+    return 1
+  return s ~ /^make( -| [A-Za-z0-9_.-]+$|$)/
 }
 
 # Rows that open alike, digits aside, are records of one kind, such as log
@@ -188,26 +253,6 @@ function lead(s, n,    i, r) {
   return r
 }
 
-# Text inserted between the two halves of a rejoined row.
-function joiner(a, b,    last, nextcp, tok) {
-  last = lastcp(body[a])
-  decode(body[b], 1)
-  nextcp = CP
-  if (cjk(last) && cjk(nextcp)) return ""
-  if (breaks_after(body[a])) return ""
-  # A wide character that did not fit leaves the last column empty.
-  if ((cjk(last) || cjk(nextcp)) && w[a] >= eff[a] - 1) return ""
-  # A row filled to the edge whose last token is part of a URL, path or
-  # identifier was broken inside it. A word wrap leaves the row shorter, or
-  # ends it with a whole word, which may well precede a path.
-  if (w[a] < eff[a]) return " "
-  tok = body[a]
-  sub(/.* /, "", tok)
-  if (tok ~ /[\/\\_=&?#%~@]/ || (length(tok) >= 6 && tok ~ /[A-Za-z0-9][.:][a-z0-9]/))
-    return ""
-  return " "
-}
-
 # Codex also wraps after a hyphen or slash inside a word.
 function breaks_after(s) {
   return s ~ /[A-Za-z0-9][-\/]$/
@@ -225,11 +270,12 @@ function ends_block(a,    s) {
 function starts_block(b,    s) {
   if (mk[b] || tool[b]) return 1
   s = body[b]
-  # After a line of code, a call or an assignment opens the next statement.
-  # After a plain word it is inline code continuing a sentence.
-  if (s ~ /^[A-Za-z_][A-Za-z0-9_.]*[(=]/ && body[b - 1] !~ /(^| )[A-Za-z]+[,;:]?$/)
+  # After a line of code, a call, an assignment or a path opens the next
+  # statement. After a plain word it continues a sentence.
+  if ((s ~ /^[A-Za-z_][A-Za-z0-9_.]*[(=]/ || s ~ /^(\.\.?|~)\//) &&
+      body[b - 1] !~ /(^| )[A-Za-z]+[,;:]?$/)
     return 1
-  if (s ~ /^([-*+]|[0-9]+[.)]) /) return 1
+  if (s ~ /^([-*+]|[0-9]+[.)]|[a-z][.)]) /) return 1
   if (s ~ /^(```|~~~|\||#+ |> |[$%] )/) return 1
   return boxy(s, 1)
 }
@@ -323,15 +369,20 @@ function decode(s, j,    b, n, k, c) {
   CL = n + 1
 }
 
-function strw(s,    j, n, total, joined) {
+function strw(s,    j, n, total, joined, cw, prev) {
   if (HIGH != "" && s !~ HIGH) return length(s)
   total = 0
   n = length(s)
   joined = 0
+  prev = 0
   for (j = 1; j <= n; j += CL) {
     decode(s, j)
-    # An emoji joined to the one before it (ZWJ) shares its cell.
-    if (!joined) total += cpw(CP)
+    # An emoji joined to the one before it (ZWJ) shares its cell, and VS16
+    # asks for the emoji form of a symbol, which takes two.
+    cw = joined ? 0 : cpw(CP)
+    if (CP == 65039 && prev == 1) cw = 1
+    total += cw
+    if (cw) prev = cw
     joined = (CP == 8205)
   }
   return total

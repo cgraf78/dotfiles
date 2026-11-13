@@ -1,4 +1,9 @@
-First run this exact shell command with your shell tool, and do nothing else with tools: python3 -c 'import sys; [print(f"2026-11-12T10:00:{i:02d} INFO worker[{i}] processed batch {i} of the nightly import job, rows ok, latency {i*7} ms") for i in range(6)]; print("x"*130)' Then, without any more tools, reply with exactly the markdown that follows, verbatim:
+First run this exact shell command with your shell tool,
+and do nothing else with tools: python3 -c 'import sys;
+[print(f"2026-11-12T10:00:{i:02d} INFO worker[{i}]
+processed batch {i} of the nightly import job, rows ok,
+latency {i*7} ms") for i in range(6)]; print("x"*130)'
+Then, without any more tools, reply with exactly the markdown that follows, verbatim:
 
 The copy filter has to rejoin paragraphs like this one, which is deliberately long enough that the terminal user interface must wrap it at least twice at eighty columns, while keeping every word intact.
 
@@ -11,7 +16,8 @@ The copy filter has to rejoin paragraphs like this one, which is deliberately lo
 - See https://example.com/a/very/long/url/path/that/keeps/going/and/going/until/it/wraps?query=1&b=2
 
 ```bash
-for f in *.txt; do printf '%s\n' "$f"; done | sort | uniq -c | sort -rn | head -n 20 # a long code line that must not be joined
+for f in *.txt; do printf '%s\n' "$f"; done | sort | uniq
+-c | sort -rn | head -n 20 # a long code line that must not be joined
 echo second line
 ```
 

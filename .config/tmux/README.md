@@ -502,15 +502,36 @@ width and indent each continuation row, so tmux sees hard line breaks it
 cannot rejoin. In a pane whose command is a known agent (`@pane_agent`),
 copy-mode Enter, Ctrl-c and `y` therefore pipe the selection to
 `clip copy --clean`, with the pane width and the column where the selection's
-first line starts. `clip clean` rejoins a row with the next one only when the
-next row continues at the same indentation and its first word could not have
-fit on the row; it then drops the agent's message markers at the margin (`●`,
-`⏺`, `•`, `↳`, `✻`, and the prompt echoes `❯` and `›`), tool-output markers
-(`⎿`, `└`), a gutter (`│`, `▌`, `▎`, `┃`) shared by every line and the margin
-common to the selection, and gives Codex's `•` list bullets back their
-markdown `-`. Blank lines, list items, fences, tables and box drawing, shell
-prompts, statements that open a line of code, tool-output records and rows
-that start at the left margin keep their line breaks. The cleaned text is the
+first line starts. `clip clean` drops the agent's message markers at the
+margin (`●`, `⏺`, `•`, `↳`, `✻`, and the prompt echoes `❯` and `›`),
+tool-output markers (`⎿`, `└`), a gutter (`│`, `▌`, `▎`, `┃`) shared by
+every line and the margin common to the selection, gives Codex's `•` list
+bullets back their markdown `-`, and rejoins the rows the agent wrapped.
+
+A wrong join silently corrupts a copied command, and a missed one only leaves
+a visible break, so the filter joins a row with the next one only when all of
+these hold:
+
+- the next row continues at the same indentation, and its first word could
+  not have fit in what was left of the row;
+- neither row is blank or holds a tab, the first does not end with box
+  drawing, a table row, a fence or a truncating `…`, and the next does not
+  start at the left margin or open a list item, heading, quote, fence, table
+  row, box drawing or shell prompt;
+- neither row looks like code: a statement keyword in a code shape (`const x
+  =`, `def f(`, `if (`, `for x in`, `return x`, `import`, `export X=`), a
+  closing bracket, a `key: value` or JSON key, a spaced `=`, `==`, `=>` or
+  `->`, a row ending in `;`, `{`, `}`, `\`, `(`, `[` or a quote, a row ending
+  in `)` or `,` that also holds brackets, quotes or `=`, or a command such as
+  `git`, `ssh`, `sudo`, `rsync`, `docker`, `./script -x` or `make install`;
+- the rows are not records that open alike (log lines, test results), and
+  tool output joins only where a row reaches the edge.
+
+The rows join with a space, except CJK text, which wraps between characters,
+and a URL or path cut inside a token: that joins without a space only when
+the row ends at the last column (or after a hyphen or slash, as Codex breaks)
+and the next row continues the same path. A row that ends in a whole path at
+the edge, followed by anything else, keeps its break. The cleaned text is the
 one copy published: `pipe-and-cancel` leaves tmux's own buffer and OSC 52
 write alone, and `clip` sends the cleaned text to the pressing client with
 `load-buffer -w` and records it in history. If the filter fails, `clip`
@@ -525,13 +546,15 @@ tmux's stock `C-j`, the pane menu's word, line and link items, and
 `clip clean --width N` (with `--column N` when the first line started
 mid-row).
 
-Rejoining judges from the text alone, so a real line break looks like a wrap
-when the next line's first word could not have fit on a row as wide as the
-pane. The guards keep such joins to prose and code inside the agent's margin:
-rows that open alike (log lines, test results) and rows at the left margin
-(shell output, diffs) stay apart. The width is the pane's when you copy, so
-text the agent drew before the pane was resized may rejoin wrongly; `Y`
-copies it as shown.
+Rejoining judges from the text alone, so a real line break between two prose
+lines looks like a wrap when the next line's first word could not have fit on
+a row as wide as the pane. Code that the agent wrapped keeps the wrap's
+break, the price of never joining two real lines of code. The width is the
+pane's when you copy, so text the agent drew before the pane was resized may
+rejoin wrongly; `Y` copies it as shown. The filter does not know which pane
+the text came from, so when `Y` cleans in a non-agent pane, a line at the
+margin starting with `●` or `❯` (systemctl status, a shell prompt) loses that
+marker as an agent's would.
 
 ## Image paste
 

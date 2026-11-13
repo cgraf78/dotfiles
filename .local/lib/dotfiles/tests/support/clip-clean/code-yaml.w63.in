@@ -1,0 +1,7 @@
+● Config:
+
+  jobs:
+    build:
+      name: build and test the whole project on every platform
+      runs-on: ubuntu-latest
+      steps:

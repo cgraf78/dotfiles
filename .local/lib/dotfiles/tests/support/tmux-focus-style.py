@@ -1476,27 +1476,42 @@ class LeafStyleTest(unittest.TestCase):
             " the two rows back into the paragraph that the agent actually wrote."
         ).split()
         item = "a list item whose text runs on well past the end of the row".split()
-        rows = [*wrap(paragraph, "● ", "  "), "", *wrap(["1.", *item], "  ", "     ")]
+        # Two commands, the first within a word of the edge, stay apart.
+        commit = '  git commit -am "'
+        commit += "a" * (width - 3 - len(commit)) + '"'
+        commands = [commit, "  git push origin main"]
+        rows = [
+            *wrap(paragraph, "● ", "  "),
+            "",
+            *wrap(["1.", *item], "  ", "     "),
+            "",
+            *commands,
+        ]
         self.assertGreater(len(rows), 4, "the transcript wraps")
         transcript = self.root / "transcript"
         transcript.write_text("\n".join(rows) + "\n")
         shown = "\n".join(rows)
-        cleaned = " ".join(paragraph) + "\n\n1. " + " ".join(item)
+        cleaned = (
+            " ".join(paragraph)
+            + "\n\n1. "
+            + " ".join(item)
+            + "\n\n"
+            + "\n".join(command[2:] for command in commands)
+        )
 
-        def pane(program: str) -> str:
+        def pane(program: str, shows: pathlib.Path = transcript) -> str:
             created = self.tmux(
                 "new-window",
                 "-P",
                 "-F",
                 "#{pane_id}",
-                shlex.join(
-                    [str(tools / program), "-c", 'cat "$1"; sleep 30; :', "-", str(transcript)]
-                ),
+                shlex.join([str(tools / program), "-c", 'cat "$1"; sleep 30; :', "-", str(shows)]),
             ).stdout.strip()
             wait_until(
                 lambda: (
                     self.show(created, "#{pane_current_command}") == program
-                    and rows[-1] in self.tmux("capture-pane", "-p", "-t", created).stdout
+                    and shows.read_text().splitlines()[-1]
+                    in self.tmux("capture-pane", "-p", "-t", created).stdout
                 ),
                 f"{program} shows the transcript",
             )
@@ -1611,6 +1626,14 @@ class LeafStyleTest(unittest.TestCase):
         other = pane("worker")
         self.assertEqual(shown + newline, copy(other, b"\r", *whole))
         self.assertEqual(cleaned + newline, copy(other, b"Y", *whole))
+
+        # A gutter that starts every row goes, along with the wraps.
+        gutter_rows = wrap(paragraph, "│ ", "│ ")
+        gutter = self.root / "gutter"
+        gutter.write_text("\n".join(gutter_rows) + "\n")
+        quoted = pane("claude", gutter)
+        whole[3] = ("-N", str(len(gutter_rows) - 1), "cursor-down")
+        self.assertEqual(" ".join(paragraph) + newline, copy(quoted, b"\r", *whole))
 
     def test_clipboard_popup_pastes_into_its_explicit_underlying_pane(self) -> None:
         """Drive the real popup and fzf, preserving trailing newlines."""

@@ -1,0 +1,6 @@
+● JS:
+
+  const response = await fetch(url, { method: "POST", body });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message);
+  return data;

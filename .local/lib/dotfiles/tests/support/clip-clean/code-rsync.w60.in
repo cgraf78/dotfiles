@@ -1,0 +1,4 @@
+● Run:
+
+  rsync -av ./build/ deploy@web01.example.com:/srv/www/site/
+  ssh deploy@web01 sudo systemctl reload nginx

@@ -11,7 +11,8 @@ The copy filter has to rejoin paragraphs like this one, which is deliberately lo
 
 - See https://example.com/a/very/long/url/path/that/keeps/going/and/going/until/it/wraps?query=1&b=2
 
-for f in *.txt; do printf '%s\n' "$f"; done | sort | uniq -c | sort -rn | head -n 20 # a long code line that must not be joined
+for f in *.txt; do printf '%s\n' "$f"; done | sort | uniq -c | sort -rn | head
+-n 20 # a long code line that must not be joined
 echo second line
 
  Name     Description

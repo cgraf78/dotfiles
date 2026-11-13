@@ -1,0 +1,6 @@
+● Run:
+
+  docker run --rm -it -v "$PWD":/work -w /work image:latest \
+    make test
+  ./configure --prefix=/usr/local --enable-shared --with-foo \  
+  --with-bar

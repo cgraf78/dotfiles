@@ -583,6 +583,13 @@ else
   _fail "clip clean fixture corpus is present ($fixture_count fixtures)"
 fi
 
+# Git stores fixtures with LF endings, so give the CRLF case its CRs here.
+awk '{ printf "%s\r\n", $0 }' "$fixtures/crlf.w52.in" >"$test_root/crlf.in"
+env PATH="$runtime_bin" TMPDIR="$test_root" "$clip" clean --width 52 \
+  <"$test_root/crlf.in" >"$test_root/cleaned"
+_clip_equal "$fixtures/crlf.w52.out" "$test_root/cleaned"
+_assert_exit "clip clean drops CR line endings before judging rows" 0 "$?"
+
 # A reply that was never wrapped, as in a pane wider than any of its rows,
 # loses only its markers and margin.
 env PATH="$runtime_bin" TMPDIR="$test_root" "$clip" clean --width 200 \
@@ -650,6 +657,31 @@ _assert_contains "a failed filter is reported" 'clean failed' "$(cat "$test_root
 _assert_eq "a failed filter leaves no staging files" 1 \
   "$(command ls -A "$test_root/clean-failed/clip" | wc -l | tr -d ' ')"
 rm -f "$backend_bin/awk" "$backend_bin/pbcopy" "$copy_log"
+
+# Privacy upgrades run one chmod over the whole history, under the option
+# parsing of BSD, BusyBox and POSIX chmod too (GNU's POSIXLY_CORRECT mode),
+# where a `--` after the mode would be taken for a file.
+cat >"$backend_bin/chmod" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >>"\$CLIP_TEST_CHMOD_LOG"
+exec $(command -v chmod) "\$@"
+EOF
+"$(command -v chmod)" +x "$backend_bin/chmod"
+for entry in one two three; do
+  printf '%s' "$entry" | env PATH="$runtime_bin" XDG_DATA_HOME="$test_root/chmod-batch" \
+    "$clip" capture --history-only
+done
+"$(command -v chmod)" 644 "$test_root/chmod-batch/clip"/*
+printf 'four' | env PATH="$test_path" XDG_DATA_HOME="$test_root/chmod-batch" \
+  POSIXLY_CORRECT=1 CLIP_TEST_CHMOD_LOG="$test_root/chmod-log" \
+  "$clip" capture --history-only
+_assert_exit "capture succeeds under POSIX chmod parsing" 0 "$?"
+_assert_eq "history permissions take one chmod call" \
+  "$(printf '700\n600')" "$(cat "$test_root/chmod-log")"
+for entry in "$test_root/chmod-batch/clip"/*; do
+  _assert_eq "history entry ${entry##*/} is private after the batch" 600 "$(_clip_mode "$entry")"
+done
+rm -f "$backend_bin/chmod"
 
 echo
 echo "=== Empty picker is an expected no-selection outcome ==="

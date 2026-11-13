@@ -1,0 +1,4 @@
+Run:
+
+export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH_X
+make install

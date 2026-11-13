@@ -1,0 +1,5 @@
+● Code:
+
+  def main():
+      result = compute_the_answer(first_argument, second_arg)
+      return result
