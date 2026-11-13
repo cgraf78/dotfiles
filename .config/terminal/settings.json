@@ -101,6 +101,12 @@
       "platform": "all"
     },
     {
+      "key": "b",
+      "mods": "CTRL|SHIFT",
+      "text": "\u001b[98;6u",
+      "platform": "all"
+    },
+    {
       "key": "LeftArrow",
       "mods": "OPT",
       "text": "\u001bb",

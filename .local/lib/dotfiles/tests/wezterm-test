@@ -817,6 +817,7 @@ LUA
     print(tostring(has_passthrough(config_table.keys, 'g', 'CTRL|SHIFT', 'g', 'CTRL|SHIFT')))
     print(tostring(has_string(config_table.keys, 'e', 'CTRL|SHIFT', '\027[101;6u')))
     print(tostring(has_string(config_table.keys, 'm', 'CTRL|SHIFT', '\027[109;6u')))
+    print(tostring(has_string(config_table.keys, 'b', 'CTRL|SHIFT', '\027[98;6u')))
     print(tostring(has_action(config_table.keys, 'f', 'CTRL|SHIFT', 'DisableDefaultAssignment')))
     print(tostring(has_action(config_table.keys, 'p', 'CTRL|SHIFT', 'DisableDefaultAssignment')))
     print(tostring(has_callback(config_table.keys, 'Tab', 'CTRL')))
@@ -885,7 +886,7 @@ LUA
   expected=$(
     printf '%s\n' \
       true true true true true true true false \
-      true true true true true true true true true true true true true \
+      true true true true true true true true true true true true true true \
       'SendKey:c:CTRL' \
       'CopyTo:Clipboard,ClearSelection' \
       'PasteFrom:Clipboard' \
