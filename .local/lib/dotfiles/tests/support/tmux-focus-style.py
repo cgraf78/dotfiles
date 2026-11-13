@@ -1385,7 +1385,15 @@ class LeafStyleTest(unittest.TestCase):
         mine.send(b"\x02>")
         self.wait_drawn(mine, b"Jump to the next pane", "the pane menu opens")
         theirs.send(b"x")
-        theirs.pump(0.2)
+        # Ask tmux itself: a bare pane id must now resolve to the peer, or the
+        # jump below would prove nothing.
+        wait_until(
+            lambda: (
+                self.tmux("display-message", "-p", "-t", target, "#{session_name}").stdout.strip()
+                == "peer"
+            ),
+            "the peer is the session tmux picks for the target pane",
+        )
         mine.send(b"a")
         wait_until(lambda: self.client_view(mine) == ("focus", target), "the jump lands here")
         self.assertEqual(
@@ -1466,6 +1474,28 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("set-option", "-pu", "-t", nested, "@termnav_child_attention")
         self.tmux("set-option", "-pu", "-t", odd, "@term_notify_pending")
         self.assertEqual("", indicator(), "the entry goes once nothing needs attention")
+
+        # The client's own name can hold glob characters too: on w[1], a
+        # marked window opened from its grouped peer (which lists the peer
+        # first) is one of the client's own, so the peer never shows it.
+        self.tmux("set-option", "-pu", "-t", self.inactive, "@term_notify_pending")
+        self.new_session("w[1]")
+        self.tmux("new-session", "-d", "-t", "=w[1]", "-s", "w[1]-peer")
+        self.tmux("switch-client", "-c", client.tty, "-t", "=w[1]")
+        wait_until(lambda: self.client_view(client)[0] == "w[1]", "client on w[1]")
+        shared = self.tmux(
+            "new-window", "-d", "-t", "=w[1]-peer:", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertRegex(shared, r"^%[0-9]+$", "tmux returned no pane id")
+        self.assertEqual(
+            "w[1]-peer,w[1]",
+            self.tmux(
+                "display-message", "-p", "-t", shared, "#{window_linked_sessions_list}"
+            ).stdout.strip(),
+            "the window lists the peer first",
+        )
+        self.tmux("set-option", "-p", "-t", shared, "@term_notify_pending", "waiting")
+        self.assertEqual({}, entries(), "a grouped peer of w[1] never shows w[1]'s windows")
 
     def test_status_keeps_the_most_severe_sessions(self) -> None:
         """Past three sessions the list keeps red, then yellow, and counts the rest."""
