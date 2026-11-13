@@ -505,7 +505,8 @@ usage: clip {save|copy|clean|capture|paste|list|pick|clear}
   copy   copy stdin to clipboard + history
          --client NAME --pane PANE targets one initiating tmux client
          --clean --width N [--column N] copies the text as clip clean prints it
-         --seq S skips publishing once tmux's @clip_copy_seq has moved past S
+         --seq S skips publishing once tmux's @clip_copy_seq, which copy-mode
+         Y bumps, has moved past S
   clean  print stdin with an agent TUI's layout removed
          --width N (required) rejoins the rows it wrapped at N columns and
          drops its margins, markers and gutter

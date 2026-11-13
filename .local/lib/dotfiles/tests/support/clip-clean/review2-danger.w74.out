@@ -1,0 +1,5 @@
+Before the migration:
+
+# take a backup of the production database first, then run the migration
+pg_dump --format=custom prod_db > /backups/prod_db.dump
+./manage.py migrate

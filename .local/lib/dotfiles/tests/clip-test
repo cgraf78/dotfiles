@@ -632,6 +632,24 @@ else
   _fail "clip clean fixture corpus is present ($fixture_count fixtures)"
 fi
 
+# Pairs of real lines of code, commands and records that must stay apart
+# even when the first reaches the edge of the pane or comes within a word
+# of it, which is how a wrapped row would look.
+apart_failures=''
+while IFS= read -r pair; do
+  first=${pair%% ||| *}
+  second=${pair#* ||| }
+  for extra in 0 1 3; do
+    pair_width=$((${#first} + 2 + extra))
+    printf '● Code:\n\n  %s\n  %s\n' "$first" "$second" >"$test_root/pair.in"
+    env PATH="$runtime_bin" TMPDIR="$test_root" "$clip" clean --width "$pair_width" \
+      <"$test_root/pair.in" >"$test_root/pair.out"
+    [[ $(wc -l <"$test_root/pair.out") -eq 4 ]] ||
+      apart_failures+="w$pair_width: $first | $second; "
+  done
+done <"$fixtures/stays-apart.pairs"
+_assert_eq "clip clean keeps every pair of code lines apart" '' "$apart_failures"
+
 # Git stores fixtures with LF endings, so give the CRLF case its CRs here.
 awk '{ printf "%s\r\n", $0 }' "$fixtures/crlf.w52.in" >"$test_root/crlf.in"
 env PATH="$runtime_bin" TMPDIR="$test_root" "$clip" clean --width 52 \

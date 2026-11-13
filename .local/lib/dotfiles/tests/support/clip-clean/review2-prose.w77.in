@@ -1,0 +1,6 @@
+● The cache isn't invalidated when the config changes, so the old value (the
+  one read at startup) is served until restart. For example in the staging
+  deployment we saw this for a whole day, which wasn't obvious from the logs,
+  because the request said "use the new value" and the server said "ok" and
+  echo the old value back. The fix is small: x = y should become x == y, and
+  then the tests pass.

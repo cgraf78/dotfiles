@@ -1,0 +1,61 @@
+let mut total = 0u64 ||| for item in items.iter() {
+use std::collections::HashMap ||| let config = Config::load()
+impl Display for Widget ||| fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+cargo build --release --target x86_64-unknown-linux-musl ||| cargo test --workspace
+Some(value) => value ||| None => default
+go build ./... ||| go test -race ./...
+go mod tidy ||| golangci-lint run ./...
+defer resp.Body.Close() ||| body, err := io.ReadAll(resp.Body)
+puts "hello" ||| end
+attr_reader :name, :email ||| validates :email, presence: true
+bundle exec rails db:migrate ||| bundle exec rspec spec/models
+local count = 0 ||| for i, v in ipairs(items) do
+print(count) ||| end
+SELECT id, name, email ||| FROM users
+-- only the active users from the last thirty days ||| SELECT id, name, email
+WHERE created_at > now() - interval '30 days' ||| ORDER BY created_at DESC
+ORDER BY created_at DESC ||| LIMIT 10
+$(CC) $(CFLAGS) -c main.c -o main.o ||| $(CC) $(LDFLAGS) main.o -o app
+build: main.o util.o ||| $(CC) -o app main.o util.o
+FROM ubuntu:24.04 AS build ||| RUN apt-get update && apt-get install -y curl
+RUN make -j8 && make install ||| COPY --from=build /out /usr/local/bin
+WORKDIR /app ||| ENTRYPOINT ["/app/server"]
+ENV PATH=/opt/tool/bin:$PATH ||| CMD ./server --port 8080
+pkgs.mkShell { ||| buildInputs = [ pkgs.git pkgs.ripgrep ];
+inherit (pkgs) lib stdenv ||| nixos-rebuild switch --flake .#host
+[package] ||| name = "clip"
+version = "0.1.0" ||| edition = "2021"
+[server] ||| port = 8080
+color: red ||| background: blue
+.header .title a:hover ||| .footer nav ul li
+<div class="row"> ||| <span>text</span>
+^(foo|bar)+[0-9]{2,}$ ||| ^[a-z]+@[a-z]+\.com$
+cat <<EOF > /etc/motd ||| Welcome to the build host for the project
+Welcome to the build host for the project ||| EOF
+ps aux | grep nginx | grep -v grep ||| journalctl -u nginx --since today
+dmesg | tail -n 50 ||| lsblk -f
+find . -name '*.pyc' -delete ||| xargs -n1 basename < files.txt
+./configure --prefix=/usr/local ||| make -j8
+./configure ||| make
+cargo build --release ||| ./target/release/app --help
+npm run build ||| npm run test
+kubectl get pods -n kube-system ||| kubectl logs -f deploy/coredns -n kube-system
+terraform init -upgrade ||| terraform plan -out=tfplan
+helm upgrade --install web ./chart ||| helm status web
+$ ls -la ||| total 48
+% make install ||| install -m 755 app /usr/local/bin
+1. terraform init ||| 2. terraform apply
+https://example.com/docs/install ||| /etc/nginx/nginx.conf
+/usr/local/lib/python3.12/site-packages/foo ||| /usr/local/lib/python3.12/site-packages/bar/baz
+src/components/Header.tsx ||| src/utils/format.ts
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ||| 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1LfVLPHCozMxH2Mo ||| 4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u
+a1b2c3d Fix the frobnicator ||| e4f5a6b Add widget tests
+brew install ripgrep fd ||| mise use -g node@22
+systemctl --user restart pipewire ||| wpctl status
+sudo dnf install -y gawk ||| gawk --version
+export PATH="$HOME/bin:$PATH" ||| source ~/.bashrc
+alias ll='ls -la' ||| ll ~/src
+mise run test ||| just lint
+cd src/lib and run the tests ||| then make sure that they pass
+cp a/b to the server and then ||| restart the service by hand

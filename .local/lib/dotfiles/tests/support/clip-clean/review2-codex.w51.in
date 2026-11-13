@@ -1,0 +1,9 @@
+• Steps:
+
+  1. terraform workspace select production-us-east
+     terraform apply -var-file=prod.tfvars
+  - helm upgrade --install ingress ./charts/ingress
+    helm rollback ingress 3
+
+  ls /var/log/nginx
+  /var/log/nginx/access.log.2.gz

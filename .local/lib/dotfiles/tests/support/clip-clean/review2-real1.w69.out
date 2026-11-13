@@ -1,0 +1,20 @@
+Here is the Dockerfile and the query:
+
+FROM golang:1.23-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/server /server
+ENTRYPOINT ["/server"]
+
+-- keep only the users who were active during the last thirty days
+SELECT u.id, u.email, count(o.id) AS orders
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+GROUP BY u.id, u.email
+ORDER BY orders DESC
+
+terraform init -backend-config=environments/production/backend.hcl
+terraform plan -var-file=environments/production/terraform.tfvars
+terraform apply -auto-approve tfplan

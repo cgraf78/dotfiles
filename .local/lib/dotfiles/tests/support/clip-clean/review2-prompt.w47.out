@@ -1,0 +1,4 @@
+Run:
+
+$ terraform init -backend-config=prod.hcl
+Initializing the backend and provider plugins

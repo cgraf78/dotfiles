@@ -1,0 +1,5 @@
+Run these in order:
+
+terraform init -backend-config=prod.hcl
+terraform plan -out=tfplan
+terraform apply tfplan

@@ -31,9 +31,9 @@ other end.
   back to platform clipboard tools. `copy-command` is `clip capture --history-only`, so
   double-click word selection and triple-click line selection join Enter,
   Ctrl-c, and vi-style `v`/`y`.
-- In an agent pane, Enter, Ctrl-c and `y` copy the selection cleaned (see
-  [Copying agent output](#copying-agent-output)); `Y` copies it as shown.
-  Elsewhere the keys swap: they copy as shown and `Y` cleans.
+- Copy-mode `Y` copies the selection with an agent's wrapping removed (see
+  [Copying agent output](#copying-agent-output)). It is opt-in: every other
+  copy, Enter, Ctrl-c and `y` included, is exactly as shown, in every pane.
 - `prefix Tab` opens extrakto, a shdeps-managed checkout sourced directly
   rather than through TPM, to fuzzy-pick a path, URL, hash, or word from the
   pane. Enter uses stock `tmux_osc52` mode to pass the selected text atomically
@@ -471,9 +471,9 @@ tightened without reading or changing payloads.
 
 For tmux selections, tmux is the single OSC 52 writer and `clip capture
 --history-only` records history without a competing asynchronous native write.
-A cleaned copy from an agent pane is the exception: tmux pipes the selection
-without copying it, and `clip copy --clean` is the single writer, through
-`load-buffer -w` to the pressing client.
+A copy-mode `Y` is the exception: tmux pipes the selection without copying
+it, and `clip copy --clean` is the single writer, through `load-buffer -w` to
+the pressing client.
 Explicit `clip copy` and ordinary `clip capture` retain native backend support.
 The frontend owns normal paste across SSH. Deliberate last-output copies carry
 the invoking client and pane and enter history through the same copy API.
@@ -501,73 +501,72 @@ introduced here.
 ## Copying agent output
 
 Agent TUIs (Claude Code, Codex, Muse) wrap their own transcript at the pane
-width and indent each continuation row, so tmux sees hard line breaks it
-cannot rejoin. In a pane whose command is a known agent (`@pane_agent`),
-copy-mode Enter, Ctrl-c and `y` therefore pipe the selection to
-`clip copy --clean`, with the pane width and the column where the selection's
-first line starts. `clip clean` drops the agent's message markers at the
-margin (`●`, `⏺`, `•`, `↳`, `✻`, and the prompt echoes `❯` and `›`),
-tool-output markers (`⎿`, `└`), a gutter (`│`, `▌`, `▎`, `┃`) shared by
-every line and the margin common to the selection, gives Codex's `•` list
-bullets back their markdown `-`, and rejoins the rows the agent wrapped.
+width and indent each continuation row, so a copy holds hard line breaks
+that tmux cannot rejoin. Copy-mode `Y` pipes the selection to
+`clip copy --clean`, with the pane width and the column where the
+selection's first line starts. Every other copy is exactly as shown, as it
+always was: Enter, Ctrl-c, `y`, double-click (a word), triple-click (a line),
+tmux's stock `C-j`, the pane menu's word, line and link items, and
+`prefix o`/`O`. `Y` means the same in every pane, so it also cleans an agent
+reached through `ssh` or a sandbox. Use the raw keys whenever the copy must
+be exact.
 
-A wrong join silently corrupts a copied command, and a missed one only leaves
-a visible break, so the filter joins a row with the next one only when all of
-these hold:
+What `Y` does:
 
-- the next row continues at the same indentation, and its first word could
-  not have fit in what was left of the row;
-- neither row is blank or holds a tab, the first does not end with box
-  drawing, a table row, a fence or a truncating `…`, and the next does not
-  start at the left margin or open a list item, heading, quote, fence, table
-  row, box drawing or shell prompt;
-- neither row looks like code: a statement keyword in a code shape (`const x
-  =`, `def f(`, `if (`, `for x in`, `return x`, `import`, `export X=`), a
-  closing bracket, a `key: value` or JSON key, a spaced `=`, `==`, `=>` or
-  `->`, a row ending in `;`, `{`, `}`, `\`, `(`, `[` or a quote, a row ending
-  in `)` or `,` that also holds brackets, quotes or `=`, or a command such as
-  `git`, `ssh`, `sudo`, `rsync`, `docker`, `./script -x` or `make install`;
-- the rows are not records that open alike (log lines, test results), and
-  tool output joins only where a row reaches the edge.
+- drops the agent's message markers at the margin (`●`, `⏺`, `•`, `↳`, `✻`,
+  and the prompt echoes `❯` and `›`), tool-output markers (`⎿`, `└`), a
+  gutter (`│`, `▌`, `▎`, `┃`) shared by every line, and the margin common to
+  the selection;
+- gives Codex's `•` list bullets back their markdown `-`;
+- rejoins rows the agent wrapped, where both rows read as prose.
+
+What it does not do: it keeps every blank line, list, heading, quote, fence,
+table, box drawing and shell prompt, never reflows or re-indents code, and
+copies a rectangle selection as shown. It does not know which program drew
+the text, so a line at the margin starting with `●` or `❯` (systemctl
+status, a shell prompt) loses that marker as an agent's would.
+
+The filter is conservative: a wrong join silently corrupts a copied command,
+and a missed one only leaves a visible break, so when it is unsure it keeps
+the break. It joins a row with the next one only when the next row continues
+at the same indentation, its first word could not have fit in what was left
+of the row, and both rows look like prose: several plain words, mostly
+letters, with no flags, paths, URLs, hashes, calls like `f(`, `snake_case`,
+braces, angle brackets, backticks, `=`, `|`, `$`, `;` or backslashes. The
+next row must start with a lowercase word (or continue CJK or other
+non-Latin text), and the first must not end in a bracket, quote, `;`, `:`
+or backslash. So these always keep their breaks: comment rows (`#`, `//`,
+`--`, `;`, `%`, `/*`, `*`), commands (a word followed by a flag, a path or
+`|`), code, `key: value` rows, and
+lists of paths, URLs, checksums, base64 or `git log --oneline` lines, even
+when a line fills the row. Tool output joins only where a row reaches the
+edge.
 
 The rows join with a space, except CJK text, which wraps between characters,
 and a URL or path cut inside a token: that joins without a space only when
-the row ends at the last column (or after a hyphen or slash, as Codex breaks)
-and the next row continues the same path. A row that ends in a whole path at
-the edge, followed by anything else, keeps its break. The cleaned text is the
-one copy published: `pipe-and-cancel` leaves tmux's own buffer and OSC 52
-write alone, and `clip` sends the cleaned text to the pressing client with
-`load-buffer -w` (plain `load-buffer` under `set-clipboard off`) and records
-it in history. Cleaning takes about 50 ms for a reply, so every copy-mode
-copy bumps `@clip_copy_seq`, and a cleaned copy that a newer copy has
-overtaken records history but does not publish over it.
+the row fills the last column mid-token and the next row's first character
+cannot start a new path or URL (`/`, `~`, `.`, `http`, a drive letter). A
+row that ends in a whole path at the edge keeps its break. A real line break
+between two prose lines still looks like a wrap when the next line's first
+word could not have fit, and the width is the pane's when you copy, so text
+the agent drew before the pane was resized may rejoin wrongly; Enter copies
+it as shown. To clean text by hand, pipe it through `clip clean --width N`
+(with `--column N` when the first line started mid-row).
 
-Failures fall back to the copy as shown where they can. If the filter fails or
-cleans the selection to nothing, `clip` copies it as captured; if the history
-directory is unusable, it still publishes the selection and says so; without
-`clip` on the server's `PATH`, tmux loads the selection itself, as for any
-other pane. If `clip` fails outright, tmux says so and names the key that
-copies the selection as shown.
+The cleaned text is the one copy published: `pipe-and-cancel` leaves tmux's
+own buffer and OSC 52 write alone, and `clip` sends the cleaned text to the
+pressing client with `load-buffer -w` (plain `load-buffer` under
+`set-clipboard off`) and records it in history. Cleaning takes about 50 ms
+for a reply, so each `Y` bumps `@clip_copy_seq`, and a `Y` copy that a later
+`Y` has overtaken records history but does not publish over it. The raw keys
+do not take part: an Enter pressed while a slower `Y` is still cleaning can
+be overwritten when that `Y` lands.
 
-`Y` copies the selection as shown, and a rectangle selection is never
-cleaned. In other panes the keys are reversed, so `Y` cleans an agent reached
-through `ssh` or a sandbox. Some copies are always as shown, in agent panes
-too: double-click (a word), triple-click (a line) and tmux's stock `C-j` in
-copy mode, the pane menu's word, line and link items, and `prefix o`/`O`. A
-quick word or line grab rarely holds a wrap, so only Enter, `C-c`, `y` and
-`Y` decide by pane. To clean text by hand, pipe it through
-`clip clean --width N` (with `--column N` when the first line started
-mid-row).
-
-Rejoining judges from the text alone, so a real line break between two prose
-lines looks like a wrap when the next line's first word could not have fit on
-a row as wide as the pane. Code that the agent wrapped keeps the wrap's
-break, the price of never joining two real lines of code. The width is the
-pane's when you copy, so text the agent drew before the pane was resized may
-rejoin wrongly; `Y` copies it as shown. The filter does not know which pane
-the text came from, so when `Y` cleans in a non-agent pane, a line at the
-margin starting with `●` or `❯` (systemctl status, a shell prompt) loses that
-marker as an agent's would.
+Failures fall back to the copy as shown where they can. If the filter fails
+or cleans the selection to nothing, `clip` copies it as captured; if the
+history directory is unusable, it still publishes the selection and says so;
+without `clip` on the server's `PATH`, tmux loads the selection itself. If
+`clip` fails outright, tmux says so and points at Enter.
 
 ## Image paste
 

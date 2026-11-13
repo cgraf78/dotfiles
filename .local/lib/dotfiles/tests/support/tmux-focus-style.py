@@ -1639,11 +1639,11 @@ class LeafStyleTest(unittest.TestCase):
     def test_agent_pane_copies_are_cleaned(self) -> None:
         """Copy a wrapped agent reply in copy mode and read what clip published.
 
-        In an agent pane, Enter hands clip the selection with the pane width
-        and the column its first line starts at, and clip publishes the cleaned
-        text to the pressing client; Y copies the rows as shown, as does a
-        rectangle. In any other pane the keys swap. The panes are bash copies
-        named claude and worker that print the transcript and wait.
+        Y hands clip the selection with the pane width and the column its
+        first line starts at, and clip publishes the cleaned text to the
+        pressing client; a rectangle is copied as shown. Enter, y and C-c copy
+        the rows as shown. The keys mean the same in every pane: the panes are
+        bash copies named claude and worker that print the transcript and wait.
         """
         if self.clip is None:
             self.skipTest("agent copy cleaning requires candidate clip")
@@ -1757,10 +1757,13 @@ class LeafStyleTest(unittest.TestCase):
         agent = pane("claude")
         # Whether a selection ending at the end of a row takes its newline
         # varies by tmux release; the cleaned copy keeps whatever it took.
-        raw = copy(agent, b"Y", *whole)
+        raw = copy(agent, b"\r", *whole)
         newline = "\n" if raw.endswith("\n") else ""
         self.assertEqual(shown + newline, raw)
-        self.assertEqual(cleaned + newline, copy(agent, b"\r", *whole))
+        for key in (b"y", b"\x03"):
+            self.assertEqual(shown + newline, copy(agent, key, *whole), f"{key!r} copies as shown")
+        self.assertNotIn("copy", calls.read_text().split(), "the raw keys never run a clean copy")
+        self.assertEqual(cleaned + newline, copy(agent, b"Y", *whole))
         # Dot-named files are another copy's staging, which may vanish.
         history = [
             entry.read_text()
@@ -1780,7 +1783,7 @@ class LeafStyleTest(unittest.TestCase):
             ("cursor-down",),
             ("end-of-line",),
         ]
-        self.assertEqual(tail + newline, copy(agent, b"\r", *forward))
+        self.assertEqual(tail + newline, copy(agent, b"Y", *forward))
         backward = [
             ("history-top",),
             ("cursor-down",),
@@ -1790,7 +1793,7 @@ class LeafStyleTest(unittest.TestCase):
             ("start-of-line",),
             ("-N", str(start), "cursor-right"),
         ]
-        self.assertEqual(tail + newline, copy(agent, b"\r", *backward))
+        self.assertEqual(tail + newline, copy(agent, b"Y", *backward))
         rectangle = [
             ("history-top",),
             ("start-of-line",),
@@ -1799,10 +1802,10 @@ class LeafStyleTest(unittest.TestCase):
             ("cursor-down",),
             ("-N", "5", "cursor-right"),
         ]
-        self.assertEqual(rows[0][:6] + "\n" + rows[1][:6], copy(agent, b"\r", *rectangle))
+        self.assertEqual(rows[0][:6] + "\n" + rows[1][:6], copy(agent, b"Y", *rectangle))
 
-        # Without a selection there is nothing to clean: Enter takes the path
-        # it always took, which leaves copy mode.
+        # Without a selection there is nothing to clean: Y takes Enter's path,
+        # which leaves copy mode.
         # The copies above record history in background jobs; let them land.
         def settled() -> bool:
             seen = calls.read_text()
@@ -1812,7 +1815,7 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(settled, "earlier clip jobs finish")
         before = calls.read_text()
         self.tmux("copy-mode", "-t", agent)
-        client.send(b"\r")
+        client.send(b"Y")
         wait_until(lambda: self.show(agent, "#{pane_in_mode}") == "0", "copy mode ends")
         client.pump(0.3)
         self.assertNotIn(
@@ -1824,12 +1827,12 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("copy-mode", "-t", agent)
         for motion in whole:
             self.tmux("send-keys", "-t", agent, "-X", *motion)
-        client.send(b"\r")
+        client.send(b"Y")
         # The message log also echoes the binding, which holds the same text.
         wait_until(
             lambda: (
                 re.search(
-                    r"message: clip could not copy the selection; Y copies it as shown",
+                    r"message: clip could not copy the selection; Enter copies it as shown",
                     self.tmux("show-messages").stdout,
                 )
                 is not None
@@ -1840,7 +1843,7 @@ class LeafStyleTest(unittest.TestCase):
 
         other = pane("worker")
         self.assertEqual(shown + newline, copy(other, b"\r", *whole))
-        self.assertEqual(cleaned + newline, copy(other, b"Y", *whole))
+        self.assertEqual(cleaned + newline, copy(other, b"Y", *whole), "Y cleans in any pane")
 
         # A gutter that starts every row goes, along with the wraps.
         gutter_rows = wrap(paragraph, "│ ", "│ ")
@@ -1848,13 +1851,20 @@ class LeafStyleTest(unittest.TestCase):
         gutter.write_text("\n".join(gutter_rows) + "\n")
         quoted = pane("claude", gutter)
         whole[3] = ("-N", str(len(gutter_rows) - 1), "cursor-down")
-        self.assertEqual(" ".join(paragraph) + newline, copy(quoted, b"\r", *whole))
+        self.assertEqual(" ".join(paragraph) + newline, copy(quoted, b"Y", *whole))
 
-        # Each copy bumps the sequence clip uses to drop an overtaken copy.
+        # Each Y bumps the sequence clip uses to drop an overtaken copy; the
+        # raw keys leave it alone.
         before_seq = int(self.tmux("show-options", "-gv", "@clip_copy_seq").stdout)
         copy(quoted, b"Y", *whole)
         after_seq = int(self.tmux("show-options", "-gv", "@clip_copy_seq").stdout)
-        self.assertEqual(before_seq + 1, after_seq, "a copy bumps @clip_copy_seq")
+        self.assertEqual(before_seq + 1, after_seq, "Y bumps @clip_copy_seq")
+        copy(quoted, b"\r", *whole)
+        self.assertEqual(
+            str(after_seq),
+            self.tmux("show-options", "-gv", "@clip_copy_seq").stdout.strip(),
+            "Enter leaves @clip_copy_seq alone",
+        )
 
         # Without clip on the server's PATH, tmux still copies as shown.
         bare = self.root / "no-clip-bin"
@@ -1862,7 +1872,7 @@ class LeafStyleTest(unittest.TestCase):
         (bare / "tmux").symlink_to(shutil.which("tmux") or "/usr/bin/tmux")
         self.tmux("set-environment", "-g", "PATH", f"{bare}:/usr/bin:/bin")
         self.assertEqual(
-            "\n".join(gutter_rows) + newline, copy(quoted, b"\r", *whole), "copied as shown"
+            "\n".join(gutter_rows) + newline, copy(quoted, b"Y", *whole), "copied as shown"
         )
 
     def test_clipboard_popup_pastes_into_its_explicit_underlying_pane(self) -> None:

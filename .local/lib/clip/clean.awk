@@ -52,6 +52,10 @@ BEGIN {
   nmarks = split("● ⏺ • ↳ ✻ › ❯", MARK, " ")
   ECHO["›"] = 1
   ECHO["❯"] = 1
+  # Characters that prose leaves out and code and commands are made of.
+  CODE = "[{}<>|$=;`\\\\]"
+  # Of those, the ones a URL or path never holds.
+  MARKUP = "[{}<>|$;`\\\\\"']"
   nlines = 0
 }
 
@@ -147,8 +151,9 @@ END {
 
 # Decide whether row b continues row a, and set SEP to the text that goes
 # between them. A missed join leaves a break the user can see; a wrong one
-# silently corrupts copied code or commands. So every doubt keeps the break.
-function joins(a, b,    last, nextcp, tl, tn) {
+# silently corrupts copied code or commands. So only rows that read as
+# prose rejoin, and every doubt keeps the break.
+function joins(a, b,    ca, cb, last, nextcp, tl, tn, loose) {
   # Agent rows keep a margin of at least two columns; shell output and the
   # context lines of a diff start further left.
   if (blank[a] || blank[b] || ind[b] < 2 || tabbed[a] || tabbed[b]) return 0
@@ -170,32 +175,47 @@ function joins(a, b,    last, nextcp, tl, tn) {
          (block[start] == 0 && ind[start] != base))) return 0
   }
   if (a == start && !(a == 1 && mid) && parallel(body[a], body[b])) return 0
-  # Code and commands sit at the same margin as prose in a reply, but their
-  # line breaks are their own.
-  if (code(body[a]) || code(body[b])) return 0
-  unit(body[b])
-  last = lastcp(body[a])
-  decode(body[b], 1)
+  # The text after a list item's marker; a selection's first line may start
+  # mid-row, where even one word is a fair start.
+  ca = substr(text[a], cind[a] + 1)
+  cb = body[b]
+  loose = (a == 1 && mid)
+  if (comment(ca) || comment(cb)) return 0
+  unit(cb)
+  last = lastcp(ca)
+  decode(cb, 1)
   nextcp = CP
-  # CJK wraps between any two characters, without a space.
+  # CJK wraps between any two characters, without a space; a row holding
+  # code punctuation keeps its break.
   if (cjk(last) && cjk(nextcp)) {
+    if (ca ~ CODE || cb ~ CODE) return 0
     SEP = ""
     return w[a] + UW > eff[a]
   }
-  tl = body[a]
+  # A lone token, or a row led by a path, URL or hash, is a record: a list
+  # of files, checksums, commits or key material.
+  if (!loose && (ca !~ / / || recordlike(ca))) return 0
+  tl = ca
   sub(/.* /, "", tl)
-  tn = body[b]
+  tn = cb
   sub(/ .*/, "", tn)
-  # A row can end inside a word only where Claude cuts a long URL or path at
-  # the last column, or Codex breaks after a hyphen or slash. Rejoin it
-  # without a space only if the next row continues the same path; a row
-  # ending that way before anything else keeps its break.
-  if (breaks_after(tl) || (w[a] == eff[a] && pathlike(tl))) {
-    if (spaced[a] || !pathlike(tn)) return 0
+  # Claude cuts a long URL or path inside a token at the last column. Rejoin
+  # it without a space only if the row is not a command, its last token
+  # stops mid-word rather than after a separator or a file extension, and
+  # the next row carries on the path without starting a new one.
+  if (w[a] == eff[a] && !spaced[a] && pathlike(tl)) {
+    if (command(ca) || ca ~ MARKUP || cb ~ MARKUP) return 0
+    if (tl ~ /[-\/.:=&?#%@_]$/ || tl ~ /\.[A-Za-z0-9]+$/) return 0
+    if (!pathlike(tn) || tn ~ /^([\/~.]|https?:|[A-Za-z]:)/) return 0
     SEP = ""
-    return w[a] + UW > eff[a]
+    return 1
   }
-  # A word wrap: the first word of row b could not have fit on row a.
+  # A word wrap, which needs prose on both rows: a sentence that runs on in
+  # a lowercase word, not a statement or command, and a first word that
+  # could not have fit.
+  if (!prose(ca, loose ? 1 : 4) || !prose(cb, 2) || command(ca) || command(cb)) return 0
+  if (ca ~ /[][;:{}()\\"'`]$/) return 0
+  if (cb !~ /^[a-z]/ && !(nextcp >= 192 && nextcp < 8192) && !hangul(nextcp)) return 0
   SEP = " "
   return w[a] + 1 + UW > eff[a]
 }
@@ -205,30 +225,57 @@ function pathlike(t) {
   return t ~ /[\/\\_=&?#%~@]/ || (length(t) >= 6 && t ~ /[A-Za-z0-9][.:][a-z0-9]/)
 }
 
-# Whether a row reads as code or a command rather than prose. Words common
-# in English (if, for, return, make) count only in a code-like shape. The
-# brackets hold no escapes: POSIX, and so BusyBox, read a backslash in a
-# bracket expression literally.
-function code(s) {
-  if (s ~ /^(const|let|var) [A-Za-z_$][A-Za-z0-9_$]* *([=:;]|$)/) return 1
-  if (s ~ /^(def|class|fn|func|function) [A-Za-z_][A-Za-z0-9_]* *[(:{<]/) return 1
-  if (s ~ /^(if|elif|while|for|switch|until|catch) *[([]/) return 1
-  if (s ~ /^for [A-Za-z_][A-Za-z0-9_]* in / || s ~ /^(if|while) .*(:| then| do)$/) return 1
-  if (s ~ /^return( [^ ]+)?;?$/ || s ~ /^(else|try|finally|do|then|fi|done|esac)[:;{ ]*$/) return 1
-  if (s ~ /^from [A-Za-z_.]+ import / || s ~ /^import [A-Za-z_.]+(,| as |;|$)/) return 1
-  if (s ~ /^export ([A-Z_][A-Z0-9_]*=|default |const |function |class )/) return 1
-  if (s ~ /^([]})]|#include|#!|@[A-Za-z]|\/\/|\/\*|<[A-Za-z!]|<\/)/) return 1
-  # YAML and JSON keys.
-  if (s ~ /^[a-z_][a-z0-9_-]*:( |$)/ || s ~ /^"[^"]*": /) return 1
-  # Assignments, comparisons and arrows.
-  if (s ~ / ([-+*\/%|&^:!<>=]?=|=>|->) /) return 1
-  if (s ~ /[;{}\\([]$/ || s ~ /["'`]$/) return 1
-  if (s ~ /[),]$/ && s ~ /[([{"'=]/) return 1
-  # Commands.
-  if (s ~ /^(\.\.?\/|~\/)[^ ]* -/) return 1
-  if (s ~ /^(\$ |(sudo|git|rsync|ssh|scp|docker|kubectl|npm|npx|pnpm|yarn|pip|pip3|cargo|brew|apt|apt-get|dnf|yum|curl|wget|tmux|rg|grep|sed|awk|chmod|chown|mkdir|rm|cp|mv|ls|cd|python|python3|node|echo|printf|cat|tar|ln|systemctl|journalctl|clip) )/)
-    return 1
-  return s ~ /^make( -| [A-Za-z0-9_.-]+$|$)/
+# Comment markers of shells, C, SQL, Lisp and TeX. The brackets hold no
+# escapes: POSIX, and so BusyBox, read a backslash in brackets literally.
+function comment(s) {
+  return s ~ /^(#|\/\/|--|;|%|\/\*|\*)/
+}
+
+# A row led by a path, URL, hash or block of base64.
+function recordlike(s,    t) {
+  t = s
+  sub(/ .*/, "", t)
+  return t ~ /^([\/~.]|[A-Za-z]:)/ || t ~ /[\/]/ || hashlike(t)
+}
+
+function hashlike(t) {
+  if (length(t) >= 7 && t ~ /^[0-9a-f]+$/ && t ~ /[0-9]/) return 1
+  return length(t) >= 16 && t ~ /[0-9]/ && t ~ /[A-Z]/ && t ~ /[a-z]/
+}
+
+# A command line: a lowercase word followed by a flag, a path or a pipe.
+function command(s) {
+  return s ~ /^[a-z][a-z0-9_.-]* +(-|[\/~.]|\|)/ || s ~ /^[a-z][a-z0-9_.-]* +[^ ]*[\/=]/
+}
+
+# Whether a row reads as prose: at least min words, mostly letters, and no
+# word shaped like code, a flag, a path, a URL or a hash.
+function prose(s, min,    n, i, t, letters, total) {
+  # A key and its value (YAML, TOML, headers) is configuration.
+  if (s ~ CODE || s ~ /^[a-z_][a-z0-9_-]*:( |$)/) return 0
+  n = split(s, WORDS, " ")
+  if (n < min) return 0
+  letters = 0
+  total = 0
+  for (i = 1; i <= n; i++) {
+    t = WORDS[i]
+    if (t ~ /^-[A-Za-z0-9-]/ || t ~ /:\/\// || t ~ /^[\/~.]/ || hashlike(t)) return 0
+    if (t ~ /\// && length(t) > 7) return 0
+    if (t ~ /[A-Za-z0-9_][(]/ || t ~ /[a-z0-9]_[a-z0-9]/ || t ~ /::/) return 0
+    if (length(t) > 4 && t ~ /[a-z][.][a-z]/) return 0
+    total += length(t)
+    gsub(/[^A-Za-z]/, "", t)
+    letters += length(t)
+  }
+  # Bytes of non-ASCII letters count as letters too.
+  t = s
+  gsub(/[ -~]/, "", t)
+  letters += length(t)
+  return total > 0 && letters >= total * 3 / 4
+}
+
+function hangul(c) {
+  return c >= 44032 && c <= 55203
 }
 
 # Rows that open alike, digits aside, are records of one kind, such as log
@@ -254,11 +301,6 @@ function lead(s, n,    i, r) {
   return r
 }
 
-# Codex also wraps after a hyphen or slash inside a word.
-function breaks_after(s) {
-  return s ~ /[A-Za-z0-9][-\/]$/
-}
-
 function ends_block(a,    s) {
   s = body[a]
   if (s ~ /^(```|~~~)/ || s ~ /^\|.*\|$/) return 1
@@ -271,11 +313,6 @@ function ends_block(a,    s) {
 function starts_block(b,    s) {
   if (mk[b] || tool[b]) return 1
   s = body[b]
-  # After a line of code, a call, an assignment or a path opens the next
-  # statement. After a plain word it continues a sentence.
-  if ((s ~ /^[A-Za-z_][A-Za-z0-9_.]*[(=]/ || s ~ /^(\.\.?|~)\//) &&
-      body[b - 1] !~ /(^| )[A-Za-z]+[,;:]?$/)
-    return 1
   if (s ~ /^([-*+]|[0-9]+[.)]|[a-z][.)]) /) return 1
   if (s ~ /^(```|~~~|\||#+ |> |[$%] )/) return 1
   return boxy(s, 1)
