@@ -187,9 +187,12 @@ events publish the session at once in the background, while some pane of it
 is marked or when a visit clears a mark, so navigation with nothing marked
 starts no process; switching session always publishes. tmux-tools'
 `term-pane-mark` does the same after each mark change, which this config
-opts into with `@term_pane_state_publish`. One hop is left: a nested tmux
-publishes to its parent pane at once, but the parent forwards that to its own
-terminal only on its next status run.
+opts into with `@term_pane_state_publish`. A nested tmux publishes to its
+parent pane at once, and an `after-set-option` hook on the parent publishes
+again when that lease's counts change, so a change crosses each nested layer
+in tens of milliseconds instead of up to a status interval. The nested
+layer's status job renews that lease every few seconds through Termnav; a
+renewal with the same counts starts no process.
 
 A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
 set the pane option `@term_busy` through tmux-tools' `term-pane-mark` when a
