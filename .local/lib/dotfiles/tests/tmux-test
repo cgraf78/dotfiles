@@ -447,7 +447,7 @@ if command -v tmux >/dev/null 2>&1; then
     session_menu=$(key_line "$root_keys" MouseDown3StatusLeft)
     # The pane menu opens below the pointer, or above it when it does not fit,
     # rather than over it, where the button coming up would close it.
-    pane_menu_y='-y "#{?#{e|<=:#{e|+:#{e|+:#{pane_top},#{mouse_y}},#{popup_height}},#{window_height}},#{e|+:#{popup_mouse_y},#{popup_height}},#{e|+:#{popup_mouse_y},1}}"'
+    pane_menu_y='-y "#{?#{&&:#{e|<=:#{e|+:#{e|+:#{pane_top},#{mouse_y}},#{popup_height}},#{window_height}},#{e|<=:#{e|+:#{popup_mouse_y},#{popup_height}},#{client_height}}},#{e|+:#{popup_mouse_y},#{popup_height}},#{e|+:#{popup_mouse_y},1}}"'
     _assert_contains 'tmux: runtime pane menu opens beside the pointer' \
       "-x M $pane_menu_y " "$pane_mouse_menu"
     _assert_eq 'tmux: runtime pane menu items are the same by key and by mouse' \
