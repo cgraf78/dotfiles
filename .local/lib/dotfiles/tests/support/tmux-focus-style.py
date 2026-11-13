@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import errno
+import json
 import os
 import pathlib
 import pty
@@ -1050,11 +1052,14 @@ class LeafStyleTest(unittest.TestCase):
         first.set_focus(True)
         wait_until(lambda: self.pending(self.active) == "", "pending cleared on client refocus")
 
-    def test_view_changes_publish_their_session_at_once(self) -> None:
-        """The terminal's attention must not wait for the deduplicated status job."""
-        # A stand-in publisher records session publishes (the status job uses
-        # the --client form) and fails noisily: a background run-shell would
-        # print its output into a pane unless the hook discards it.
+    def stub_session_publisher(self):
+        """Install a term-pane-state that records session publishes.
+
+        The status job uses the --client form, so only hook publishes are
+        recorded. The stub fails noisily: a background run-shell would print
+        its output into a pane unless the hook discards it. Returns a reader
+        of the recorded argument lists.
+        """
         publisher = self.root / "publisher"
         publisher.mkdir()
         published = self.root / "published"
@@ -1073,6 +1078,12 @@ class LeafStyleTest(unittest.TestCase):
                 return published.read_text().splitlines()
             except FileNotFoundError:
                 return []
+
+        return runs
+
+    def test_view_changes_publish_their_session_at_once(self) -> None:
+        """The terminal's attention must not wait for the deduplicated status job."""
+        runs = self.stub_session_publisher()
 
         def publishes(session: str, description: str, change) -> None:
             before = len(runs())
@@ -1154,6 +1165,210 @@ class LeafStyleTest(unittest.TestCase):
         stays_quiet("detached next-window", lambda: self.tmux("next-window", "-t", session))
         self.assertEqual("done", self.pending(marked))
         self.assertEqual([], modes())
+
+    def test_child_lease_changes_publish_their_session_at_once(self) -> None:
+        """A nested layer's new counts must not wait for this layer's status job."""
+        runs = self.stub_session_publisher()
+        client = Client(self)
+        self.clients.append(client)
+
+        def modes() -> list[str]:
+            listing = self.tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_mode}").stdout
+            return [line.split()[0] for line in listing.splitlines() if len(line.split()) > 1]
+
+        # Load-time run-shell failures of absent startup helpers open view mode.
+        for pane in modes():
+            self.tmux("send-keys", "-t", pane, "-X", "cancel")
+        session = self.tmux("display-message", "-p", "#{session_id}").stdout.strip()
+        published = f"--socket {self.socket} --session {session}"
+        expiry = int(time.time()) + 15
+
+        def lease(pane: str, counts: str, waiting: int = 0, renewal: int = 0) -> None:
+            """Send Termnav's exact command list: both options, from a client."""
+            stamp = expiry + renewal
+            extra = (
+                ["set-option", "-p", "-t", pane, "@termnav_child_waiting", f"{stamp}:{waiting}"]
+                if waiting
+                else ["set-option", "-pu", "-t", pane, "@termnav_child_waiting"]
+            )
+            self.tmux(
+                "set-option",
+                "-p",
+                "-t",
+                pane,
+                "@termnav_child_attention",
+                f"{stamp}:{counts}",
+                ";",
+                *extra,
+            )
+
+        def publishes(description: str, change, both: bool = False) -> None:
+            before = len(runs())
+            change()
+            wait_until(lambda: len(runs()) > before, description, timeout=2.0)
+            time.sleep(0.3)
+            # The hook runs after each of Termnav's two set-options, so a write
+            # that changes both options may publish twice; one never does.
+            new = runs()[before:]
+            self.assertEqual({published}, set(new), description)
+            self.assertLessEqual(len(new), 2 if both else 1, description)
+
+        def stays_quiet(description: str, change) -> None:
+            before = len(runs())
+            change()
+            time.sleep(0.5)
+            self.assertEqual(before, len(runs()), description)
+
+        # Only the lease options count: a hook that fired on any option would
+        # see this pane's empty counts as new and publish.
+        stays_quiet(
+            "unrelated option before any lease",
+            lambda: self.tmux("set-option", "-p", "-t", self.inactive, "@unrelated", "0"),
+        )
+        publishes("publish a new lease", lambda: lease(self.inactive, "1:1:0"))
+        # The nested status job renews every few seconds; only the expiry moves.
+        stays_quiet("renewal", lambda: lease(self.inactive, "1:1:0", renewal=1))
+        stays_quiet("second renewal", lambda: lease(self.inactive, "1:1:0", renewal=2))
+        publishes("publish new work counts", lambda: lease(self.inactive, "2:1:0"))
+        publishes("publish a waiting count", lambda: lease(self.inactive, "2:1:0", 1))
+        stays_quiet("waiting renewal", lambda: lease(self.inactive, "2:1:0", 1, renewal=1))
+        stays_quiet(
+            "unrelated option",
+            lambda: self.tmux("set-option", "-p", "-t", self.inactive, "@unrelated", "1"),
+        )
+        # The same counts on another pane are new to that pane.
+        publishes("publish another pane", lambda: lease(self.active, "2:1:0", 1), both=True)
+        # term-pane-state retires an expired lease from an if-shell, which the
+        # hook sees like any client set-option.
+        publishes("publish a cleared waiting count", lambda: lease(self.inactive, "2:1:0"))
+        retire = f"set-option -pu -t {self.inactive} @termnav_child_attention"
+        publishes(
+            "publish a retired lease",
+            lambda: self.tmux("if-shell", "-F", "-t", self.inactive, "1", retire),
+        )
+        # Counts that change while the session is detached are still recorded,
+        # so returning to the counts published before the detach publishes.
+        returning = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "focus:", "sleep 30"
+        ).stdout.strip()
+        self.assertTrue(returning.startswith("%"), returning)
+        publishes("publish an idle lease", lambda: lease(returning, "0:0:0"))
+        client.close()
+        wait_until(
+            lambda: not self.tmux("list-clients", "-t", "focus", "-F", "x").stdout.strip(),
+            "client detach",
+        )
+        stays_quiet("detached work", lambda: lease(returning, "1:0:0"))
+        stays_quiet("detached done", lambda: lease(returning, "0:1:0"))
+        client = Client(self)
+        self.clients.append(client)
+        # Attaching publishes through its own hooks; let those settle first.
+        # The fixture lacks the attach hook's helper, whose failure opens view
+        # mode, as at startup.
+        time.sleep(0.5)
+        for pane in modes():
+            self.tmux("send-keys", "-t", pane, "-X", "cancel")
+        publishes(
+            "publish the counts from before the detach",
+            lambda: lease(returning, "0:0:0", renewal=1),
+        )
+        # A detached session has no terminal to publish to.
+        other = self.tmux(
+            "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "other", "sleep 30"
+        ).stdout.strip()
+        self.assertTrue(other.startswith("%"), other)
+        stays_quiet("detached session", lambda: lease(other, "1:1:0"))
+        self.assertEqual([], modes())
+
+    def test_nested_attention_reaches_the_terminal_at_once(self) -> None:
+        """Relay a mark from a nested tmux through this one to its terminal.
+
+        This server's status job is removed, so only the lease hook can
+        publish here: the frame arrives at once or not at all.
+        """
+        path = self.environment.get("PATH")
+        termnav = shutil.which("termnav", path=path)
+        publisher = shutil.which("term-pane-state", path=path)
+        if termnav is None or publisher is None:
+            self.skipTest("termnav and tmux-tools' term-pane-state are not installed")
+        usage = subprocess.run(
+            [publisher],
+            env=self.environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if "--session" not in usage.stderr:
+            self.skipTest("term-pane-state predates session publishing")
+        inner = self.root / "inner.sock"
+
+        def inner_tmux(*arguments: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["tmux", "-S", str(inner), *arguments],
+                env=self.environment,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+
+        self.addCleanup(inner_tmux, "kill-server")
+        self.tmux("set-option", "-g", "status-right", "")
+        terminal = Client(self)
+        self.clients.append(terminal)
+        script = self.root / "inner.sh"
+        script.write_text(
+            "#!/bin/sh\nexec tmux -S "
+            + shlex.quote(str(inner))
+            + " -f "
+            + shlex.quote(str(self.config))
+            + " new-session -s inner 'sleep 30'\n"
+        )
+        script.chmod(0o700)
+        host = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "focus:", str(script)
+        ).stdout.strip()
+        self.assertTrue(host.startswith("%"), host)
+        wait_until(
+            lambda: inner_tmux("list-clients", "-F", "#{client_pid}").stdout.strip(),
+            "nested client attachment",
+        )
+        # The inner layer publishes only from its mark, as term-pane-mark does.
+        inner_tmux("set-option", "-g", "status-right", "")
+        marked = inner_tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "inner:", "sleep 30"
+        ).stdout.strip()
+        self.assertTrue(marked.startswith("%"), marked)
+        frame = re.compile(rb"\x1b\]1337;SetUserVar=TERM_PANE_STATE=([A-Za-z0-9+/=]+)\x07")
+
+        def reaches(change: list[str], field: str, value: int) -> None:
+            terminal.drain()
+            # term-pane-mark's command list with @term_pane_state_publish on.
+            inner_tmux(
+                *change,
+                ";",
+                "if-shell",
+                "-F",
+                "-t",
+                marked,
+                "#{&&:#{==:#{@term_pane_state_publish},on},#{session_attached}}",
+                f"run-shell -b -t {marked} 'term-pane-state --socket #{{q:socket_path}}"
+                " --session #{q:session_id} >/dev/null 2>&1 || true'",
+            )
+            output = bytearray()
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                output.extend(terminal.pump(0.05))
+                for match in frame.finditer(output):
+                    if json.loads(base64.b64decode(match[1])).get(field) == value:
+                        return
+            self.fail(f"terminal never saw {field}={value}: {bytes(output)!r}")
+
+        pane = ["-p", "-t", marked, "@term_notify_pending"]
+        reaches(["set-option", *pane, "done"], "pending", 1)
+        reaches(["set-option", *pane, "waiting"], "waiting", 1)
+        reaches(["set-option", "-u", *pane], "pending", 0)
 
     def current_pane(self, client: Client) -> str:
         return self.tmux("display-message", "-c", client.tty, "-p", "#{pane_id}").stdout.strip()
