@@ -702,8 +702,12 @@ class LeafStyleTest(unittest.TestCase):
     def pending(self, pane: str) -> str:
         return self.tmux("show-options", "-pqv", "-t", pane, "@term_notify_pending").stdout.strip()
 
-    def program_command(self, name: str) -> str:
-        """Return a command line whose foreground command reports as NAME."""
+    def program_command(self, name: str, script: str = "sleep 30; :") -> str:
+        """Return a command line whose foreground command reports as NAME.
+
+        SCRIPT must keep bash itself in the foreground: the default's trailing
+        no-op stops bash from exec-ing sleep in its place.
+        """
         tools = self.root / "programs"
         tools.mkdir(exist_ok=True)
         program = tools / name
@@ -711,7 +715,7 @@ class LeafStyleTest(unittest.TestCase):
             bash = shutil.which("bash")
             self.assertIsNotNone(bash, "bash is required for fake programs")
             shutil.copy2(str(bash), program)
-        return shlex.join([str(program), "-c", "sleep 30; :"])
+        return shlex.join([str(program), "-c", script])
 
     def program_pane(self, name: str, *, window: bool = False) -> str:
         """Start a pane whose foreground command reports as NAME.
@@ -1574,19 +1578,23 @@ class LeafStyleTest(unittest.TestCase):
         # Over a pane that is neither a nested tmux nor a remote session, such
         # as an agent, the chord turns on this tmux's own prefix and the pane
         # receives no C-b.
-        tools = self.root / "programs"
-        tools.mkdir(exist_ok=True)
-        agent_program = tools / "claude"
-        cat = shutil.which("cat")
-        self.assertIsNotNone(cat, "cat is required")
-        shutil.copy2(str(cat), agent_program)
-        agent = self.tmux(
-            "new-window", "-P", "-F", "#{pane_id}", shlex.join([str(agent_program), "-v"])
-        ).stdout.strip()
-        self.assertRegex(agent, r"^%[0-9]+$", "tmux returned no pane id")
-        wait_until(
-            lambda: self.client_view(client) == ("focus", agent), "the agent pane is current"
+        # The agent is a copy of bash (see program_command) that stays the
+        # pane's foreground command while it reads; the terminal echoes a
+        # received C-b as ^B. A copied cat would not do: multicall builds
+        # (Ubuntu's Rust coreutils, BusyBox) exit when renamed.
+        agent_command = self.program_command(
+            "claude", "while IFS= read -r line; do printf 'got %s\\n' \"$line\"; done"
         )
+        agent = self.tmux("new-window", "-P", "-F", "#{pane_id}", agent_command).stdout.strip()
+        self.assertRegex(agent, r"^%[0-9]+$", "tmux returned no pane id")
+
+        def agent_ready() -> bool:
+            alive = self.tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_current_command}")
+            panes = dict(line.split(" ", 1) for line in alive.stdout.splitlines())
+            self.assertIn(agent, panes, "the fake agent exited")
+            return panes[agent] == "claude" and self.client_view(client) == ("focus", agent)
+
+        wait_until(agent_ready, "the agent pane is current and runs the agent")
         client.send(b"\x1b[98;6u")
         wait_until(
             lambda: self.client_format(client, "#{client_prefix}") == "1",
@@ -1597,9 +1605,10 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("switch-client", "-c", client.tty, "-T", "root")
         client.pump(0.1)
         client.send(b"zq\r")
+        # The agent read exactly the typed line, so no C-b came before it.
         wait_until(
-            lambda: "zq" in self.tmux("capture-pane", "-p", "-t", agent).stdout,
-            "typing reaches the agent",
+            lambda: "got zq" in self.tmux("capture-pane", "-p", "-t", agent).stdout.splitlines(),
+            "the agent reads the typed line and nothing else",
         )
         self.assertNotIn("^B", self.tmux("capture-pane", "-p", "-t", agent).stdout)
         self.tmux("select-window", "-t", nested)
