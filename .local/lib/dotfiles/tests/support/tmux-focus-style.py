@@ -55,7 +55,7 @@ def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
 class Client:
     """One controllable terminal attachment to the isolated tmux server."""
 
-    def __init__(self, test: LeafStyleTest):
+    def __init__(self, test: LeafStyleTest, session: str = "focus"):
         self.test = test
         self.pid, self.master = pty.fork()
         if self.pid == 0:
@@ -64,7 +64,7 @@ class Client:
             os.environ["TERM"] = "xterm-256color"
             os.execvp(
                 "tmux",
-                ["tmux", "-S", str(test.socket), "attach-session", "-t", "focus"],
+                ["tmux", "-S", str(test.socket), "attach-session", "-t", session],
             )
         self.tty = ""
         wait_until(self._find_tty, "tmux client attachment")
@@ -2294,6 +2294,50 @@ class LeafStyleTest(unittest.TestCase):
 
                 wait_until(typed_after_no_selection, f"typing works after {history} history")
                 self.assertEqual(prior + sentinel, received.read_bytes())
+
+    def test_clip_copy_reaches_its_client_while_another_is_active(self) -> None:
+        """clip copy --client checks the client it names, in any session.
+
+        prefix o and the pane menu hand clip the pressing client. Asked by
+        display-message -c, tmux answers for the most recently active client
+        instead, and tmux 3.2 takes no argument to -c at all, so the copy
+        failed whenever a client of another session had typed since.
+        """
+        if self.clip is None:
+            self.skipTest("client copies require candidate clip")
+        self.tmux("new-session", "-d", "-s", "other", "cat >/dev/null")
+        pressing = Client(self)
+        self.clients.append(pressing)
+        other = Client(self, "other")
+        self.clients.append(other)
+        names = dict(
+            line.split(maxsplit=1)
+            for line in self.tmux(
+                "list-clients", "-F", "#{client_pid} #{client_name}"
+            ).stdout.splitlines()
+        )
+        name = names.get(str(pressing.pid), "")
+        self.assertTrue(name, "the pressing client has a name")
+        # The other session's client types last, so tmux's choice is it.
+        other.send(b"x")
+        other.pump(0.3)
+        while self.tmux("delete-buffer", check=False).returncode == 0:
+            pass
+        environment = {
+            **self.environment,
+            "TMUX": f"{self.socket},0,0",
+            "XDG_DATA_HOME": str(self.root / "client-data"),
+        }
+        copied = subprocess.run(
+            [str(self.clip), "copy", "--client", name, "--pane", self.active],
+            input="the last command's output\n",
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(0, copied.returncode, copied.stderr)
+        self.assertEqual("the last command's output\n", self.tmux("show-buffer").stdout)
 
     def test_prefix_g_and_G_open_popups_in_the_pane_directory(self) -> None:
         """Press prefix g and G and check what each popup ran, and where.
