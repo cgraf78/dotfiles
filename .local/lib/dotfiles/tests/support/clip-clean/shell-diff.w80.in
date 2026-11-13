@@ -1,0 +1,8 @@
+diff --git a/src/parse.c b/src/parse.c
+@@ -40,7 +40,7 @@ static int parse_line(struct parser *p, const char *line)
+ 	size_t n = strlen(line);
+ static const char *const keywords[] = {"alpha", "beta", "gamma", "delta", 0};
+ static const char *const separators[] = {",", ";", ":", NULL};
+-	return undeclared_identifier_with_a_long_name;
++	return parse_fields(p, line, n);
+

@@ -19,7 +19,7 @@ mkdir -p "$backend_bin" "$data_home"
 # Keep each backend case independent of clipboard tools installed by the host.
 # In particular, macOS provides pbcopy/pbpaste in /usr/bin, which must not win
 # while the Wayland, X11, and missing-backend cases are under test.
-for tool in bash cat chmod cut date head ls mkdir mktemp mv rm sed tail tr wc; do
+for tool in awk bash cat chmod cut date head ls mkdir mktemp mv rm sed tail tr wc; do
   ln -s "$(command -v "$tool")" "$runtime_bin/$tool"
 done
 test_path="$backend_bin:$runtime_bin"
@@ -538,6 +538,118 @@ _assert_exit "empty exact-client copy does not falsely claim clipboard clearing"
 history_files=("$test_root/empty-client/clip"/*)
 _clip_equal "$payload" "${history_files[0]}"
 _assert_exit "unsupported empty client clear still preserves exact history" 0 "$?"
+
+echo
+echo "=== Agent transcript cleaning ==="
+
+# Each fixture is a selection copied from an agent pane, named for the pane
+# width it was wrapped at (.wN) and, when it starts mid-row, the column of its
+# first line (.cN). Most are real Claude Code and Codex captures; the rest are
+# shaped like them to reach the edge cases. shell-* fixtures are ordinary
+# command output, which cleaning must leave byte for byte.
+fixtures="${BASH_SOURCE[0]%/*}/support/clip-clean"
+fixture_count=0
+for input in "$fixtures"/*.in; do
+  name=${input##*/}
+  name=${name%.in}
+  width=${name#*.w}
+  width=${width%%.*}
+  clean_args=(--width "$width")
+  case $name in *.c[0-9]*) clean_args+=(--column "${name##*.c}") ;; esac
+  expected=${input%.in}.out
+  case $name in shell-*) expected=$input ;; esac
+  env PATH="$runtime_bin" TMPDIR="$test_root" \
+    "$clip" clean "${clean_args[@]}" <"$input" >"$test_root/cleaned"
+  _assert_exit "clip clean accepts $name" 0 "$?"
+  _clip_equal "$expected" "$test_root/cleaned"
+  _assert_exit "clip clean gives the expected text for $name" 0 "$?"
+  # Rejoined text is already whole, so cleaning it again changes nothing.
+  # Tool output is the exception: once its marker is gone, nothing marks its
+  # rows as records.
+  case $name in
+    *-tool*) ;;
+    *)
+      env PATH="$runtime_bin" TMPDIR="$test_root" \
+        "$clip" clean --width "$width" <"$test_root/cleaned" >"$test_root/recleaned"
+      _clip_equal "$test_root/cleaned" "$test_root/recleaned"
+      _assert_exit "clip clean is idempotent for $name" 0 "$?"
+      ;;
+  esac
+  fixture_count=$((fixture_count + 1))
+done
+if ((fixture_count >= 10)); then
+  _pass "clip clean fixture corpus is present ($fixture_count fixtures)"
+else
+  _fail "clip clean fixture corpus is present ($fixture_count fixtures)"
+fi
+
+# A reply that was never wrapped, as in a pane wider than any of its rows,
+# loses only its markers and margin.
+env PATH="$runtime_bin" TMPDIR="$test_root" "$clip" clean --width 200 \
+  <"$fixtures/claude-reply.w80.in" >"$test_root/unwrapped"
+_assert_eq "clip clean joins no rows of an unwrapped reply" \
+  "$(wc -l <"$fixtures/claude-reply.w80.in")" "$(wc -l <"$test_root/unwrapped")"
+_assert_eq "clip clean removes the reply marker and margin" \
+  'The copy filter has to rejoin paragraphs like this one, which is deliberately' \
+  "$(head -n 1 "$test_root/unwrapped")"
+
+printf 'only line' | env PATH="$runtime_bin" TMPDIR="$test_root" \
+  "$clip" clean --width 80 >"$test_root/cleaned"
+_assert_file_content "clip clean keeps a missing final newline missing" \
+  'only line' "$test_root/cleaned"
+_assert_eq "clip clean keeps an empty selection empty" 0 \
+  "$(env PATH="$runtime_bin" TMPDIR="$test_root" "$clip" clean --width 80 </dev/null |
+    wc -c | tr -d ' ')"
+
+for invalid in 'clean' 'clean --width 0' 'clean --width 80 --column x' \
+  'copy --width 80' 'copy --clean' 'capture --clean --width 80' \
+  'clean --width 80 --clean'; do
+  # shellcheck disable=SC2086 # Each case is a deliberately split argument list.
+  env PATH="$runtime_bin" "$clip" $invalid </dev/null >/dev/null 2>&1
+  _assert_exit "clip rejects: $invalid" 2 "$?"
+done
+
+cat >"$backend_bin/pbcopy" <<'EOF'
+#!/usr/bin/env bash
+cat >"$CLIP_TEST_COPY_LOG"
+EOF
+chmod +x "$backend_bin/pbcopy"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/clean-copy" \
+  CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --clean --width 40 <"$fixtures/emoji.w40.in"
+_assert_exit "clip copy --clean succeeds" 0 "$?"
+_clip_equal "$fixtures/emoji.w40.out" "$copy_log"
+_assert_exit "clip copy --clean publishes the cleaned text" 0 "$?"
+history_files=("$test_root/clean-copy/clip"/*)
+_clip_equal "$fixtures/emoji.w40.out" "${history_files[0]}"
+_assert_exit "clip copy --clean records the cleaned text in history" 0 "$?"
+_assert_eq "clip copy --clean leaves no staging files" 1 \
+  "$(command ls -A "$test_root/clean-copy/clip" | wc -l | tr -d ' ')"
+
+# Text that cleans to nothing, such as spaces, is copied as captured: tmux
+# cannot publish an empty selection.
+printf '   ' >"$payload"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/clean-blank" \
+  CLIP_TEST_COPY_LOG="$copy_log" "$clip" copy --clean --width 40 <"$payload"
+_clip_equal "$payload" "$copy_log"
+_assert_exit "clip copy --clean keeps a selection that cleans to nothing" 0 "$?"
+
+# A filter failure must never lose the selection: copy it as captured.
+cat >"$backend_bin/awk" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$backend_bin/awk"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/clean-failed" \
+  CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --clean --width 40 <"$fixtures/emoji.w40.in" 2>"$test_root/clean-error"
+_assert_exit "clip copy --clean still copies when the filter fails" 0 "$?"
+_clip_equal "$fixtures/emoji.w40.in" "$copy_log"
+_assert_exit "a failed filter copies the selection as captured" 0 "$?"
+_assert_contains "a failed filter is reported" 'clean failed' "$(cat "$test_root/clean-error")"
+_assert_eq "a failed filter leaves no staging files" 1 \
+  "$(command ls -A "$test_root/clean-failed/clip" | wc -l | tr -d ' ')"
+rm -f "$backend_bin/awk" "$backend_bin/pbcopy" "$copy_log"
 
 echo
 echo "=== Empty picker is an expected no-selection outcome ==="

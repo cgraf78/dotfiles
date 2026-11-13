@@ -1,0 +1,8 @@
+Run these, then compare the output:
+
+git -C ~/src/project diff --cached --stat -- .local/lib/clip .local/bin/clip
+LC_ALL=C awk -v width=80 -f clean.awk input.txt > cleaned.txt
+parser.add_argument("--output", help="where to write the result file to")
+parser.add_argument("--verbose", action="store_true")
+if [ -s cleaned.txt ]; then echo "cleaned $(wc -l <cleaned.txt) lines"; fi {
+}

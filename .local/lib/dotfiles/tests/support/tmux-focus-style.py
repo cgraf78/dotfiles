@@ -1421,6 +1421,197 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("kill-pane", "-t", own)
         self.tmux("kill-pane", "-t", other)
 
+    def test_agent_pane_copies_are_cleaned(self) -> None:
+        """Copy a wrapped agent reply in copy mode and read what clip published.
+
+        In an agent pane, Enter hands clip the selection with the pane width
+        and the column its first line starts at, and clip publishes the cleaned
+        text to the pressing client; Y copies the rows as shown, as does a
+        rectangle. In any other pane the keys swap. The panes are bash copies
+        named claude and worker that print the transcript and wait.
+        """
+        if self.clip is None:
+            self.skipTest("agent copy cleaning requires candidate clip")
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        client.set_focus(True)
+        tools = self.root / "copy-bin"
+        tools.mkdir()
+        wrapper = tools / "clip"
+        broken = self.root / "clip-broken"
+        calls = self.root / "clip-calls"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            f'printf "%s\\n" "$1" >>{shlex.quote(str(calls))}\n'
+            f"[ -e {shlex.quote(str(broken))} ] && exit 1\n"
+            "exec " + shlex.quote(str(self.clip)) + ' "$@"\n'
+        )
+        wrapper.chmod(0o700)
+        for name in ("claude", "worker"):
+            shutil.copy(shutil.which("bash") or "/bin/bash", tools / name)
+        data = self.root / "copy-data"
+        self.tmux("set-environment", "-g", "PATH", f"{tools}:{self.environment['PATH']}")
+        self.tmux("set-environment", "-g", "XDG_DATA_HOME", str(data))
+
+        # Wrap a paragraph and a list item the way Claude Code does, at the
+        # width this client gives a window.
+        probe = self.tmux("new-window", "-P", "-F", "#{pane_id}", "sleep 30").stdout.strip()
+        width = int(self.show(probe, "#{pane_width}"))
+        self.tmux("kill-pane", "-t", probe)
+
+        def wrap(words: list[str], first: str, rest: str) -> list[str]:
+            rows = [first + words[0]]
+            for word in words[1:]:
+                if len(rows[-1]) + 1 + len(word) > width:
+                    rows.append(rest + word)
+                else:
+                    rows[-1] += " " + word
+            return rows
+
+        paragraph = (
+            "Agent replies arrive wrapped at the pane width, so the filter decides for"
+            " every row whether the next word could have fit there, and only then joins"
+            " the two rows back into the paragraph that the agent actually wrote."
+        ).split()
+        item = "a list item whose text runs on well past the end of the row".split()
+        rows = [*wrap(paragraph, "● ", "  "), "", *wrap(["1.", *item], "  ", "     ")]
+        self.assertGreater(len(rows), 4, "the transcript wraps")
+        transcript = self.root / "transcript"
+        transcript.write_text("\n".join(rows) + "\n")
+        shown = "\n".join(rows)
+        cleaned = " ".join(paragraph) + "\n\n1. " + " ".join(item)
+
+        def pane(program: str) -> str:
+            created = self.tmux(
+                "new-window",
+                "-P",
+                "-F",
+                "#{pane_id}",
+                shlex.join(
+                    [str(tools / program), "-c", 'cat "$1"; sleep 30; :', "-", str(transcript)]
+                ),
+            ).stdout.strip()
+            wait_until(
+                lambda: (
+                    self.show(created, "#{pane_current_command}") == program
+                    and rows[-1] in self.tmux("capture-pane", "-p", "-t", created).stdout
+                ),
+                f"{program} shows the transcript",
+            )
+            wait_until(lambda: self.current_pane(client) == created, f"client on {program}")
+            return created
+
+        def copy(target: str, key: bytes, *motions: tuple[str, ...]) -> str:
+            while self.tmux("delete-buffer", check=False).returncode == 0:
+                pass
+            self.tmux("copy-mode", "-t", target)
+            for motion in motions:
+                self.tmux("send-keys", "-t", target, "-X", *motion)
+            client.send(key)
+            client.pump(0.1)
+            wait_until(
+                lambda: self.tmux("list-buffers", "-F", "#{buffer_name}").stdout.strip() != "",
+                "the copy reaches a tmux buffer",
+            )
+            return self.tmux("show-buffer").stdout
+
+        whole = [
+            ("history-top",),
+            ("start-of-line",),
+            ("begin-selection",),
+            ("-N", str(len(rows) - 1), "cursor-down"),
+            ("end-of-line",),
+        ]
+        agent = pane("claude")
+        # Whether a selection ending at the end of a row takes its newline
+        # varies by tmux release; the cleaned copy keeps whatever it took.
+        raw = copy(agent, b"Y", *whole)
+        newline = "\n" if raw.endswith("\n") else ""
+        self.assertEqual(shown + newline, raw)
+        self.assertEqual(cleaned + newline, copy(agent, b"\r", *whole))
+        # Dot-named files are another copy's staging, which may vanish.
+        history = [
+            entry.read_text()
+            for entry in (data / "clip").iterdir()
+            if not entry.name.startswith(".")
+        ]
+        self.assertIn(cleaned + newline, history, "clip history records the cleaned text")
+
+        # A selection may start mid-row, and either end may be the anchor.
+        start = rows[0].index(paragraph[3])
+        tail = " ".join(paragraph[3 : len(" ".join(rows[:2]).split()) - 1])
+        forward = [
+            ("history-top",),
+            ("start-of-line",),
+            ("-N", str(start), "cursor-right"),
+            ("begin-selection",),
+            ("cursor-down",),
+            ("end-of-line",),
+        ]
+        self.assertEqual(tail + newline, copy(agent, b"\r", *forward))
+        backward = [
+            ("history-top",),
+            ("cursor-down",),
+            ("end-of-line",),
+            ("begin-selection",),
+            ("cursor-up",),
+            ("start-of-line",),
+            ("-N", str(start), "cursor-right"),
+        ]
+        self.assertEqual(tail + newline, copy(agent, b"\r", *backward))
+        rectangle = [
+            ("history-top",),
+            ("start-of-line",),
+            ("begin-selection",),
+            ("rectangle-toggle",),
+            ("cursor-down",),
+            ("-N", "5", "cursor-right"),
+        ]
+        self.assertEqual(rows[0][:6] + "\n" + rows[1][:6], copy(agent, b"\r", *rectangle))
+
+        # Without a selection there is nothing to clean: Enter takes the path
+        # it always took, which leaves copy mode.
+        # The copies above record history in background jobs; let them land.
+        def settled() -> bool:
+            seen = calls.read_text()
+            time.sleep(0.3)
+            return calls.read_text() == seen
+
+        wait_until(settled, "earlier clip jobs finish")
+        before = calls.read_text()
+        self.tmux("copy-mode", "-t", agent)
+        client.send(b"\r")
+        wait_until(lambda: self.show(agent, "#{pane_in_mode}") == "0", "copy mode ends")
+        client.pump(0.3)
+        self.assertNotIn(
+            "copy", calls.read_text()[len(before) :].split(), "no selection runs no clean copy"
+        )
+
+        # A clip that fails has copied nothing, which tmux reports.
+        broken.touch()
+        self.tmux("copy-mode", "-t", agent)
+        for motion in whole:
+            self.tmux("send-keys", "-t", agent, "-X", *motion)
+        client.send(b"\r")
+        # The message log also echoes the binding, which holds the same text.
+        wait_until(
+            lambda: (
+                re.search(
+                    r"message: clip could not copy the selection; Y copies it as shown",
+                    self.tmux("show-messages").stdout,
+                )
+                is not None
+            ),
+            "a failed clean copy is reported",
+        )
+        broken.unlink()
+
+        other = pane("worker")
+        self.assertEqual(shown + newline, copy(other, b"\r", *whole))
+        self.assertEqual(cleaned + newline, copy(other, b"Y", *whole))
+
     def test_clipboard_popup_pastes_into_its_explicit_underlying_pane(self) -> None:
         """Drive the real popup and fzf, preserving trailing newlines."""
         if self.clip is None or shutil.which("fzf") is None:

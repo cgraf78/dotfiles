@@ -1,0 +1,3 @@
+● The filter reads its settings from the configuration file named in the
+  config.yaml entry, and it keeps the list of the panes it has seen in
+  ~/.config/clip so that it never writes anything back to disk at all.

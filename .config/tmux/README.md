@@ -31,6 +31,9 @@ other end.
   back to platform clipboard tools. `copy-command` is `clip capture --history-only`, so
   double-click word selection and triple-click line selection join Enter,
   Ctrl-c, and vi-style `v`/`y`.
+- In an agent pane, Enter, Ctrl-c and `y` copy the selection cleaned (see
+  [Copying agent output](#copying-agent-output)); `Y` copies it as shown.
+  Elsewhere the keys swap: they copy as shown and `Y` cleans.
 - `prefix Tab` opens extrakto, a shdeps-managed checkout sourced directly
   rather than through TPM, to fuzzy-pick a path, URL, hash, or word from the
   pane. Enter uses stock `tmux_osc52` mode to pass the selected text atomically
@@ -465,6 +468,9 @@ tightened without reading or changing payloads.
 
 For tmux selections, tmux is the single OSC 52 writer and `clip capture
 --history-only` records history without a competing asynchronous native write.
+A cleaned copy from an agent pane is the exception: tmux pipes the selection
+without copying it, and `clip copy --clean` is the single writer, through
+`load-buffer -w` to the pressing client.
 Explicit `clip copy` and ordinary `clip capture` retain native backend support.
 The frontend owns normal paste across SSH. Deliberate last-output copies carry
 the invoking client and pane and enter history through the same copy API.
@@ -488,6 +494,44 @@ cycle and the previous custom pipeline is removed on reload. Extracted copies
 therefore do not enter `clip` history. Upstream's public mode still uses
 implicit client selection; no custom plugin fork or exact-client claim is
 introduced here.
+
+## Copying agent output
+
+Agent TUIs (Claude Code, Codex, Muse) wrap their own transcript at the pane
+width and indent each continuation row, so tmux sees hard line breaks it
+cannot rejoin. In a pane whose command is a known agent (`@pane_agent`),
+copy-mode Enter, Ctrl-c and `y` therefore pipe the selection to
+`clip copy --clean`, with the pane width and the column where the selection's
+first line starts. `clip clean` rejoins a row with the next one only when the
+next row continues at the same indentation and its first word could not have
+fit on the row; it then drops the agent's message markers at the margin (`●`,
+`⏺`, `•`, `↳`, `✻`, and the prompt echoes `❯` and `›`), tool-output markers
+(`⎿`, `└`), a gutter (`│`, `▌`, `▎`, `┃`) shared by every line and the margin
+common to the selection, and gives Codex's `•` list bullets back their
+markdown `-`. Blank lines, list items, fences, tables and box drawing, shell
+prompts, statements that open a line of code, tool-output records and rows
+that start at the left margin keep their line breaks. The cleaned text is the
+one copy published: `pipe-and-cancel` leaves tmux's own buffer and OSC 52
+write alone, and `clip` sends the cleaned text to the pressing client with
+`load-buffer -w` and records it in history. If the filter fails, `clip`
+copies the selection as captured; if `clip` itself fails, nothing is copied
+and tmux says so, naming the key that copies the selection as shown instead.
+
+`Y` copies the selection as shown, and a rectangle selection is never
+cleaned. In other panes the keys are reversed, so `Y` cleans an agent reached
+through `ssh` or a sandbox. Double- and triple-click word and line copies,
+tmux's stock `C-j`, the pane menu's word, line and link items, and
+`prefix o`/`O` copy as shown. To clean text by hand, pipe it through
+`clip clean --width N` (with `--column N` when the first line started
+mid-row).
+
+Rejoining judges from the text alone, so a real line break looks like a wrap
+when the next line's first word could not have fit on a row as wide as the
+pane. The guards keep such joins to prose and code inside the agent's margin:
+rows that open alike (log lines, test results) and rows at the left margin
+(shell output, diffs) stay apart. The width is the pane's when you copy, so
+text the agent drew before the pane was resized may rejoin wrongly; `Y`
+copies it as shown.
 
 ## Image paste
 

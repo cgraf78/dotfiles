@@ -1,0 +1,6 @@
+│ Codex can draw a left gutter beside quoted text, so every
+│ row of the quote starts with the same bar and a space.
+│
+│ - A list item inside the gutter that is long enough to
+│   wrap onto a second row.
+│ - A short item.

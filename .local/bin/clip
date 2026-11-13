@@ -3,8 +3,10 @@
 #
 # Usage:
 #   clip save              snapshot current clipboard to history
-#   clip copy [--client NAME --pane PANE] [< input]
-#                          copy stdin to a host/client clipboard + history
+#   clip copy [--clean --width N [--column N]] [--client NAME --pane PANE]
+#             [< input]    copy stdin to a host/client clipboard + history
+#   clip clean --width N [--column N] [< input]
+#                          remove an agent TUI's wraps, margins and markers
 #   clip capture [--history-only] [< input]
 #                          save history; optionally mirror a native clipboard
 #   clip paste             print the current host clipboard
@@ -31,6 +33,8 @@ fi
 CLIP_DIR="$REPLY"
 unset _dot_clip_library_home _dot_clip_xdg
 CLIP_MAX=200
+# Agent TUIs wrap their own transcript; this filter undoes it (see the file).
+CLIP_CLEAN_AWK=${BASH_SOURCE[0]%/*}/../lib/clip/clean.awk
 
 # Prefer the native backend for the active display. A binary installed on a
 # remote or headless host is not enough: selecting it without its display
@@ -71,8 +75,10 @@ _prune() {
 # removes trailing newlines and Bash cannot represent NUL. Private staging also
 # prevents pickers from observing an entry before its producer has finished.
 capture_file=''
+clean_file=''
 _cleanup() {
   [[ -z "$capture_file" ]] || rm -f -- "$capture_file"
+  [[ -z "$clean_file" ]] || rm -f -- "$clean_file"
 }
 trap _cleanup EXIT
 trap 'exit 129' HUP
@@ -102,21 +108,31 @@ _entry() {
 
 _entries() {
   local listing entry
+  local -a candidates=()
   ENTRIES=()
   listing=$(
     cd -- "$CLIP_DIR" || exit
     command ls -1t
   ) || return
   while IFS= read -r entry; do
-    if _entry "$entry"; then
-      if ! chmod 600 "$CLIP_DIR/$entry" 2>/dev/null; then
-        # Concurrent pruning can remove an entry after this list was built.
-        [[ -e "$CLIP_DIR/$entry" || -L "$CLIP_DIR/$entry" ]] || continue
-        return 1
-      fi
-      ENTRIES+=("$entry")
-    fi
+    if _entry "$entry"; then candidates+=("$entry"); fi
   done <<<"$listing"
+  ((${#candidates[@]})) || return 0
+  # One chmod for the whole history keeps every copy as fast with 200 entries
+  # as with one; only a failure needs the pass that tells an entry pruned
+  # since the listing from a real error.
+  if chmod 600 -- "${candidates[@]/#/$CLIP_DIR/}" 2>/dev/null; then
+    ENTRIES=("${candidates[@]}")
+    return 0
+  fi
+  for entry in "${candidates[@]}"; do
+    if ! chmod 600 "$CLIP_DIR/$entry" 2>/dev/null; then
+      # Concurrent pruning can remove an entry after this list was built.
+      [[ -e "$CLIP_DIR/$entry" || -L "$CLIP_DIR/$entry" ]] || continue
+      return 1
+    fi
+    ENTRIES+=("$entry")
+  done
 }
 
 _temporary() {
@@ -138,6 +154,43 @@ _record() {
   if ! _prune; then
     echo 'clip: warning: selection recorded but history pruning failed' >&2
   fi
+}
+
+# Write the cleaned bytes of file $1 to stdout. awk cannot tell whether its
+# last line had a newline, so the shell passes that on.
+_clean() {
+  local last final=0
+  last=$(tail -c 1 -- "$1" && printf x) || return
+  [[ "$last" != $'\nx' ]] || final=1
+  LC_ALL=C awk -v width="$width" -v column="${column:-0}" -v final_newline="$final" \
+    -f "$CLIP_CLEAN_AWK" <"$1"
+}
+
+# Replace the staged selection with its cleaned text. Any failure here leaves
+# the selection as captured: an uncleaned copy beats a lost one. So does text
+# that cleans to nothing, such as spaces, which tmux could not publish.
+_clean_capture() {
+  if clean_file=$(
+    umask 077
+    mktemp "$CLIP_DIR/.clean.XXXXXXXXXX"
+  ) && _clean "$capture_file" >"$clean_file" &&
+    [[ -s "$clean_file" || ! -s "$capture_file" ]] &&
+    mv -- "$clean_file" "$capture_file"; then
+    clean_file=''
+    return
+  fi
+  echo 'clip: clean failed; copying the selection as captured' >&2
+  [[ -z "$clean_file" ]] || rm -f -- "$clean_file"
+  clean_file=''
+}
+
+clip_clean() {
+  capture_file=$(
+    umask 077
+    mktemp "${TMPDIR:-/tmp}/clip-clean.XXXXXXXXXX"
+  ) || return
+  cat >"$capture_file" || return
+  _clean "$capture_file"
 }
 
 clip_save() {
@@ -167,6 +220,7 @@ clip_copy() {
   fi
   _temporary || return
   cat >"$capture_file" || return
+  if ((clean)); then _clean_capture; fi
   if [[ -s "$capture_file" ]]; then has_content=1; fi
   exec 3<"$capture_file" || return
   _record || return
@@ -322,10 +376,19 @@ pane=''
 publish_pane=''
 paste_pane=''
 history_only=0
+clean=0
+width=''
+column=''
 while (($#)); do
   if [[ "$1" == --history-only ]]; then
     [[ "$command_name" == capture && "$history_only" == 0 ]] || exit 2
     history_only=1
+    shift
+    continue
+  fi
+  if [[ "$1" == --clean ]]; then
+    [[ "$command_name" == copy && "$clean" == 0 ]] || exit 2
+    clean=1
     shift
     continue
   fi
@@ -350,6 +413,16 @@ while (($#)); do
       [[ "$command_name" == pick || "$command_name" == paste ]] || exit 2
       paste_pane="$2"
       ;;
+    --width)
+      [[ "$command_name" == clean || "$command_name" == copy ]] || exit 2
+      [[ "$2" =~ ^[1-9][0-9]*$ ]] || exit 2
+      width="$2"
+      ;;
+    --column)
+      [[ "$command_name" == clean || "$command_name" == copy ]] || exit 2
+      [[ "$2" =~ ^[0-9]+$ ]] || exit 2
+      column="$2"
+      ;;
     *)
       echo 'clip: unknown option' >&2
       exit 2
@@ -363,9 +436,16 @@ for requested_pane in "$pane" "$publish_pane" "$paste_pane"; do
 done
 [[ -z "$paste_pane" || -z "$publish_pane" ]] || exit 2
 [[ -z "$client" || -n "$pane" ]] || exit 2
+# Cleaning needs the width the agent wrapped at; it is meaningless without.
+if [[ "$command_name" == clean ]] || ((clean)); then
+  [[ -n "$width" ]] || exit 2
+else
+  [[ -z "$width" && -z "$column" ]] || exit 2
+fi
 case "$command_name" in
   save) clip_save ;;
   copy) clip_copy ;;
+  clean) clip_clean ;;
   capture) clip_capture ;;
   paste) clip_paste ;;
   list) clip_list ;;
@@ -373,10 +453,15 @@ case "$command_name" in
   clear) clip_clear ;;
   *)
     cat >&2 <<'USAGE'
-usage: clip {save|copy|capture|paste|list|pick|clear}
+usage: clip {save|copy|clean|capture|paste|list|pick|clear}
   save   snapshot current clipboard to history
   copy   copy stdin to clipboard + history
          --client NAME --pane PANE targets one initiating tmux client
+         --clean --width N [--column N] copies the text as clip clean prints it
+  clean  print stdin with an agent TUI's layout removed
+         --width N (required) rejoins the rows it wrapped at N columns and
+         drops its margins, markers and gutter
+         --column N gives the column where the first line started
   capture copy stdin when possible, always save to history
          --history-only avoids a duplicate clipboard writer after tmux OSC 52
   paste  print the current host clipboard

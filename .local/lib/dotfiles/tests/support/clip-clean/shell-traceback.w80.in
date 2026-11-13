@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/srv/app/worker.py", line 120, in process_batch_records_for_import
+    result = transform(record, schema=current_schema, strict=True, now=now)
+  File "/srv/app/transform.py", line 44, in transform
+    raise ValueError(f"bad record {record.id}: missing field {name!r} now")
+ValueError: bad record 17: missing field 'created_at' now

@@ -1,0 +1,8 @@
+$ make -C build test
+cc -O2 -Wall -Wextra -Werror -I./include -c src/parse.c -o build/parse.o -MMD -MP
+src/parse.c: In function 'parse_line':
+src/parse.c:42:17: error: 'undeclared_identifier_with_a_long_name' undeclared (first use in this function)
+   42 |     return  undeclared_identifier_with_a_long_name + other_long_name;
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+make: *** [Makefile:12: build/parse.o] Error 1
+

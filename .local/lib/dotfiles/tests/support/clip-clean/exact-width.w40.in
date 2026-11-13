@@ -1,0 +1,17 @@
+● Summary
+  ──────────────────────────────────────
+  This row is exactly forty columns wide
+  - and a list item follows it directly.
+  This row is exactly forty columns too.
+
+  2026-11-12T10:00:01 worker ok, 4 rows.
+  2026-11-12T10:00:02 worker ok, 9 rows.
+
+  ok 1 - parses the default config file.
+  ok 2 - rejects unknown keys
+  | key   | value                      |
+  | width | the pane width in columns. |
+  Text that fills the row exactly, then:
+      indented code that must stay put
+  This one really is wrapped: the next
+  word did not fit on the row above it.

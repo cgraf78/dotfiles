@@ -1,0 +1,7 @@
+● Run these to reproduce the failure:
+
+  $ make -C build test
+  ok 1 - parses the configuration file at the default path
+  ok 2 - rejects unknown keys
+  $ echo $?
+  0

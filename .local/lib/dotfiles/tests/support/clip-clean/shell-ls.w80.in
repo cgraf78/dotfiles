@@ -1,0 +1,6 @@
+total 48
+drwxr-xr-x  5 user staff   160 Nov 12 10:01 .
+drwxr-xr-x 18 user staff   576 Nov 12 09:58 ..
+-rwxr-xr-x  1 user staff 12017 Nov 12 10:01 clip
+-rw-r--r--  1 user staff  6408 Nov 12 10:01 clean.awk
+-rw-r--r--  1 user staff 21004 Nov 12 10:00 a-file-with-a-deliberately-long-name-to-fill.txt

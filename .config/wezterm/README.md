@@ -174,7 +174,9 @@ selection, while an unselected `Ctrl-C` continues into the pty as interrupt.
 Selections made inside tmux copy mode take the other path: tmux stores them in
 its buffer and publishes them to a capable outer terminal with OSC 52. The
 `clip capture --history-only` pipe keeps private clipboard history while tmux
-owns OSC 52 delivery, avoiding a second clipboard writer. Plain `Ctrl-V` in a
+owns OSC 52 delivery, avoiding a second clipboard writer. A copy from an agent
+pane is cleaned first, and `clip` publishes it with OSC 52 instead (see the
+tmux README). Plain `Ctrl-V` in a
 non-WezTerm/non-VS Code local terminal remains supported through `clip paste`.
 
 ### Image paste

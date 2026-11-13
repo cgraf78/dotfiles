@@ -138,9 +138,12 @@ _assert_contains 'tmux: active panes use the brighter Night Owl background' \
 _assert_not_contains 'tmux: focus rendering does not spawn commands' \
   '#(' "$(printf '%s\n' "$tmux_content" | awk '/termnav_pane_is_focused_leaf|window-active-style|pane-active-border-style|pane-border-format/')"
 
+# shellcheck disable=SC2016 # Match the literal %hidden references in config.
 for binding in \
-  'bind -T copy-mode-vi C-c send-keys -X copy-pipe-and-cancel' \
-  'bind -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "clip capture --history-only"' \
+  'bind -T copy-mode-vi C-c if -F "$copy_cleans" "$copy_cleaned" "$copy_shown"' \
+  'bind -T copy-mode-vi Enter if -F "$copy_cleans" "$copy_cleaned" "$copy_shown"' \
+  'bind -T copy-mode-vi y if -F "$copy_cleans" "$copy_cleaned" "$copy_shown"' \
+  'bind -T copy-mode-vi Y if -F "$copy_y_cleans" "$copy_cleaned" "$copy_shown"' \
   "bind -T copy-mode-vi S-Left if -F '#{selection_active}'" \
   "bind -T copy-mode-vi S-Right if -F '#{selection_active}'" \
   "bind -T copy-mode-vi S-Up if -F '#{selection_active}'" \
@@ -150,6 +153,20 @@ for binding in \
   _assert_contains "tmux: preserves copy-mode binding $binding" \
     "$binding" "$tmux_content"
 done
+_assert_contains 'tmux: copies as shown go through tmux and clip history' \
+  "%hidden copy_shown='send-keys -X copy-pipe-and-cancel \"clip capture --history-only\"'" \
+  "$tmux_content"
+# shellcheck disable=SC2016 # Match the literal %hidden reference in config.
+_assert_contains 'tmux: cleaned copies hand clip the width, column and client' \
+  'pipe-and-cancel \"clip copy --clean --width #{pane_width} --column $copy_column --client #{q:client_name} --pane #{pane_id} || tmux display-message -c #{q:client_name}' \
+  "$tmux_content"
+_assert_contains 'tmux: only a selection that is not a rectangle is cleaned' \
+  "%hidden copy_cleanable='#{&&:#{selection_present},#{!=:#{rectangle_toggle},1}}'" \
+  "$tmux_content"
+# shellcheck disable=SC2016 # Match the literal %hidden reference in config.
+_assert_contains 'tmux: only an agent pane cleans by default' \
+  '%hidden copy_cleans="#{&&:#{E:@pane_agent},$copy_cleanable}"' \
+  "$tmux_content"
 _assert_contains 'tmux: modified copy selections establish an anchor' \
   'send-keys -X begin-selection' "$tmux_content"
 _assert_contains 'tmux: publishes copy-mode selections through OSC 52' \
@@ -649,7 +666,10 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_contains 'tmux: runtime copy mode v begins a selection' \
       'begin-selection' "$(printf '%s\n' "$copy_keys" | awk '$4 == "v"')"
     _assert_contains 'tmux: runtime copy mode y copies through clip' \
-      'copy-pipe-and-cancel "clip capture --history-only"' \
+      'copy-pipe-and-cancel \"clip capture --history-only\"' \
+      "$(printf '%s\n' "$copy_keys" | awk '$4 == "y"')"
+    _assert_contains 'tmux: runtime copy mode y cleans through clip in agent panes' \
+      'pipe-and-cancel \"clip copy --clean --width #{pane_width} --column' \
       "$(printf '%s\n' "$copy_keys" | awk '$4 == "y"')"
     _assert_contains 'tmux: runtime copy mode C-v keeps rectangle selection' \
       'rectangle-toggle' "$(printf '%s\n' "$copy_keys" | awk '$4 == "C-v"')"
@@ -1231,6 +1251,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_another_focused_client_does_not_strand_a_mark \
     test_view_changes_publish_their_session_at_once \
     test_prefix_A_pastes_the_last_output_into_the_agent \
+    test_agent_pane_copies_are_cleaned \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
     test_prefix_n_opens_a_task_window \
     test_right_click_opens_the_pane_menu_on_the_pane_clicked \

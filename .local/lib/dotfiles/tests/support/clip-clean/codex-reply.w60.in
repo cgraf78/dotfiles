@@ -1,0 +1,39 @@
+• The copy filter has to rejoin paragraphs like this one,
+  which is deliberately long enough that the terminal user
+  interface must wrap it at least twice at eighty columns,
+  while keeping every word intact.
+
+  1. First numbered item, which is also long enough to wrap
+     onto a second line when the pane is narrow.
+
+  2. Second item.
+      • Nested bullet that runs on for quite a while so that
+        it too wraps onto a continuation line.
+
+      • Short nested bullet.
+
+  • A plain bullet with a path: /home/user/projects/some-
+    really-long-directory-name/src/components/widget.tsx
+
+  • See https://example.com/a/very/long/url/path/that/keeps/
+    going/and/going/until/it/wraps?query=1&b=2
+
+  for f in *.txt; do printf '%s\n' "$f"; done | sort | uniq
+  -c | sort -rn | head -n 20 # a long code line that must
+  not be joined
+  echo second line
+
+   Name     Description
+  ━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   alpha    The first entry in the table, with a fairly
+            long description cell
+  ───────  ─────────────────────────────────────────────────
+   beta     Second
+
+  这是一个很长的中文段落，用来测试宽字符在终端换行边界上的处
+  理是否正确，以及复制时是否能够正确地重新连接成一个段落而不
+  丢失任何字符。
+
+  Emoji check 🎉 with a sentence that keeps going so the
+  emoji might land near the wrap boundary 🚀 and then more
+  words follow here.

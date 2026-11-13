@@ -1,0 +1,6 @@
+● Bash(git status --short)
+  ⎿   M .local/bin/clip
+     ?? .local/lib/clip/
+
+● Two files changed: the clip script and the new filter
+  library beside it.

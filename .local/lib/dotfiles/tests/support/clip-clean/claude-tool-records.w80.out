@@ -1,0 +1,4 @@
+Bash(git log --oneline -3)
+   a1b2c3d clip: clean agent TUI selections before copying them to clipboard
+   e4f5a6b tmux: copy from agent panes through clip clean by default
+   0918273 tests: add clip-clean fixtures

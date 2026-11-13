@@ -1,0 +1,5 @@
+2026-11-12T10:00:00 INFO worker[0] processed batch 0 of the nightly import ok
+2026-11-12T10:00:01 INFO worker[1] processed batch 1 of the nightly import ok
+2026-11-12T10:00:02 WARN worker[2] retrying batch 2 after a transient failure
+Done in 3.1s.
+
