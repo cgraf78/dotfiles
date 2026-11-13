@@ -177,6 +177,17 @@ relays, with the waiting count in its own lease beside them. The containing
 tmux window and WezTerm tab therefore show a nested layer's dots without
 parsing colored titles or polling each pane in a separate process.
 
+The publisher runs as a status-bar job, which tmux reruns at most once a
+second and otherwise every five seconds, so the terminal's dots would lag the
+tmux tab after you switch windows or panes or change focus. Hooks on those
+events publish the session at once in the background, while some pane of it
+is marked or when a visit clears a mark, so navigation with nothing marked
+starts no process; switching session always publishes. tmux-tools'
+`term-pane-mark` does the same after each mark change, which this config
+opts into with `@term_pane_state_publish`. One hop is left: a nested tmux
+publishes to its parent pane at once, but the parent forwards that to its own
+terminal only on its next status run.
+
 A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
 set the pane option `@term_busy` through tmux-tools' `term-pane-mark` when a
 prompt is submitted and clear it when the turn ends: on Stop or session end,
