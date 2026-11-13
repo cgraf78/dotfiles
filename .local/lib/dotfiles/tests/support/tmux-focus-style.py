@@ -55,7 +55,7 @@ def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
 class Client:
     """One controllable terminal attachment to the isolated tmux server."""
 
-    def __init__(self, test: LeafStyleTest):
+    def __init__(self, test: LeafStyleTest, session: str = "focus"):
         self.test = test
         self.pid, self.master = pty.fork()
         if self.pid == 0:
@@ -64,7 +64,7 @@ class Client:
             os.environ["TERM"] = "xterm-256color"
             os.execvp(
                 "tmux",
-                ["tmux", "-S", str(test.socket), "attach-session", "-t", "focus"],
+                ["tmux", "-S", str(test.socket), "attach-session", "-t", session],
             )
         self.tty = ""
         wait_until(self._find_tty, "tmux client attachment")
@@ -1636,6 +1636,78 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("kill-pane", "-t", own)
         self.tmux("kill-pane", "-t", other)
 
+    def test_copies_write_the_clipboard_once_and_spare_other_clients(self) -> None:
+        """Each copy reaches the pressing client's clipboard in one OSC 52.
+
+        A copy that set a tmux option would redraw every client, and tmux
+        skips the clipboard write for a client with a redraw pending, so the
+        raw keys set nothing and Y counts its copies in the environment. A
+        client attached to another session, idle, receives nothing.
+        """
+        if self.clip is None:
+            self.skipTest("copy cleaning requires candidate clip")
+        tools = self.root / "osc-bin"
+        tools.mkdir()
+        (tools / "clip").symlink_to(self.clip)
+        self.tmux("set-environment", "-g", "PATH", f"{tools}:{self.environment['PATH']}")
+        self.tmux("set-environment", "-g", "XDG_DATA_HOME", str(self.root / "osc-data"))
+        self.tmux("set-option", "-g", "set-clipboard", "on")
+        # Status jobs redraw on their interval; stop them so any bytes the
+        # idle client receives come from the copies.
+        self.tmux("set-option", "-g", "status-interval", "0")
+        self.tmux("new-session", "-d", "-s", "idle", "sleep 30")
+        client = Client(self)
+        self.clients.append(client)
+        if not self.supports_client_format_context(client.tty):
+            self.skipTest("tmux does not support client-targeted format expansion")
+        idle = Client(self, "idle")
+        self.clients.append(idle)
+        client.set_focus(True)
+        text = self.root / "osc-text"
+        text.write_text("copied once to the clipboard\nand a second line of it\n")
+        pane = self.tmux(
+            "new-window",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            shlex.join(["sh", "-c", 'cat "$1"; exec sleep 30', "-", str(text)]),
+        ).stdout.strip()
+        self.assertTrue(pane, "the copy pane exists")
+        wait_until(
+            lambda: "second line" in self.tmux("capture-pane", "-p", "-t", pane).stdout,
+            "the pane shows the text",
+        )
+        wait_until(lambda: self.current_pane(client) == pane, "client on the copy pane")
+        client.pump(0.3)
+
+        def osc52(key: bytes) -> tuple[int, bytes]:
+            while self.tmux("delete-buffer", check=False).returncode == 0:
+                pass
+            self.tmux("copy-mode", "-t", pane)
+            for motion in (
+                ("history-top",),
+                ("start-of-line",),
+                ("begin-selection",),
+                ("cursor-down",),
+                ("end-of-line",),
+            ):
+                self.tmux("send-keys", "-t", pane, "-X", *motion)
+            idle.pump(0.3)
+            output = bytearray()
+            client.send(key)
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                output.extend(client.pump(0.05))
+                if self.tmux("list-buffers", "-F", "#{buffer_name}").stdout.strip():
+                    break
+            output.extend(client.pump(0.5))
+            return bytes(output).count(b"\x1b]52;"), idle.pump(0.5)
+
+        for key, name in ((b"\r", "Enter"), (b"Y", "Y")):
+            writes, spill = osc52(key)
+            self.assertEqual(1, writes, f"{name} writes the clipboard once")
+            self.assertEqual(b"", spill, f"{name} sends nothing to an idle client elsewhere")
+
     def test_agent_pane_copies_are_cleaned(self) -> None:
         """Copy a wrapped agent reply in copy mode and read what clip published.
 
@@ -1854,16 +1926,21 @@ class LeafStyleTest(unittest.TestCase):
         self.assertEqual(" ".join(paragraph) + newline, copy(quoted, b"Y", *whole))
 
         # Each Y bumps the sequence clip uses to drop an overtaken copy; the
-        # raw keys leave it alone.
-        before_seq = int(self.tmux("show-options", "-gv", "@clip_copy_seq").stdout)
+        # raw keys leave it alone. It lives in the hidden global environment.
+        def sequence() -> int:
+            shown = self.tmux("show-environment", "-gh", "CLIP_COPY_SEQ").stdout
+            return int(shown.strip().partition("=")[2])
+
+        before_seq = sequence()
         copy(quoted, b"Y", *whole)
-        after_seq = int(self.tmux("show-options", "-gv", "@clip_copy_seq").stdout)
-        self.assertEqual(before_seq + 1, after_seq, "Y bumps @clip_copy_seq")
+        after_seq = sequence()
+        self.assertEqual(before_seq + 1, after_seq, "Y bumps CLIP_COPY_SEQ")
         copy(quoted, b"\r", *whole)
+        self.assertEqual(after_seq, sequence(), "Enter leaves CLIP_COPY_SEQ alone")
         self.assertEqual(
-            str(after_seq),
-            self.tmux("show-options", "-gv", "@clip_copy_seq").stdout.strip(),
-            "Enter leaves @clip_copy_seq alone",
+            "",
+            self.tmux("show-options", "-gqv", "@clip_copy_seq").stdout.strip(),
+            "no copy sets an option, which would redraw every client",
         )
 
         # Without clip on the server's PATH, tmux still copies as shown.

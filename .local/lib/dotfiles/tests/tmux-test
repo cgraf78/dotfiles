@@ -156,14 +156,14 @@ _assert_contains 'tmux: Y alone cleans, and only a selection that is not a recta
   'bind -N "Copy the selection with an agent'"'"'s wrapping removed" -T copy-mode-vi Y if -F "$copy_cleanable" "$copy_cleaned"' \
   "$tmux_content"
 _assert_contains 'tmux: a cleaned copy bumps the copy sequence first' \
-  "%hidden copy_cleaned=\"set -gF @clip_copy_seq '#{e|+:#{@clip_copy_seq},1}' ; send-keys -X pipe-and-cancel" \
+  "%hidden copy_cleaned=\"set-environment -ghF CLIP_COPY_SEQ '#{e|+:#{CLIP_COPY_SEQ},1}' ; send-keys -X pipe-and-cancel" \
   "$tmux_content"
 _assert_contains 'tmux: without clip a cleaned copy falls back to tmux, honouring set-clipboard' \
   "%hidden copy_load='tmux load-buffer #{?#{==:#{set-clipboard},off},,-w -t #{q:client_name}} -'" \
   "$tmux_content"
 # shellcheck disable=SC2016 # Match the literal %hidden reference in config.
 _assert_contains 'tmux: cleaned copies hand clip the width, column and client' \
-  'clip copy --clean --seq s#{@clip_copy_seq} --width #{pane_width} --column $copy_column --client #{q:client_name} --pane #{pane_id} || tmux display-message -c #{q:client_name}' \
+  'clip copy --clean --seq s#{CLIP_COPY_SEQ} --width #{pane_width} --column $copy_column --client #{q:client_name} --pane #{pane_id} || { tmux display-message -c #{q:client_name} -t #{pane_id} '"'"'$copy_failed'"'"' || tmux display-message -t #{pane_id} '"'"'$copy_failed'"'"'; } 2>/dev/null' \
   "$tmux_content"
 _assert_contains 'tmux: only a selection that is not a rectangle is cleaned' \
   "%hidden copy_cleanable='#{&&:#{selection_present},#{!=:#{rectangle_toggle},1}}'" \
@@ -1266,6 +1266,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_child_lease_changes_publish_their_session_at_once \
     test_nested_attention_reaches_the_terminal_at_once \
     test_prefix_A_pastes_the_last_output_into_the_agent \
+    test_copies_write_the_clipboard_once_and_spare_other_clients \
     test_agent_pane_copies_are_cleaned \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
     test_prefix_n_opens_a_task_window \

@@ -308,11 +308,23 @@ cat >"$backend_bin/tmux" <<'EOF'
 printf '%s\n' "$*" >>"$CLIP_TEST_TMUX_LOG"
 case "$1" in
   display-message)
-    if [[ " $* " != *' -p '* ]]; then exit 0
-    elif [[ "$*" == *'#{pane_id}'* ]]; then
+    # tmux 3.2 takes no argument to -c.
+    if [[ -n ${CLIP_TEST_NO_C:-} && " $* " == *' -c '* ]]; then exit 1
+    elif [[ " $* " != *' -p '* ]]; then exit 0
+    else
       printf '%s %s s%s\n' "${CLIP_TEST_PANE:-%7}" "${CLIP_TEST_CLIPBOARD:-on}" \
         "${CLIP_TEST_SEQ:-}"
-    else printf '%s\n' "${CLIP_TEST_CLIENT:-/dev/ttys007}"; fi ;;
+    fi ;;
+  # A client of another session is listed too, and first.
+  list-clients) printf '/dev/ttys009\n%s\n' "${CLIP_TEST_CLIENT:-/dev/ttys007}" ;;
+  # The newest buffer is first; a later look can see a newer copy.
+  list-buffers)
+    looks=0
+    while IFS= read -r call; do [[ $call != list-buffers* ]] || looks=$((looks + 1)); done \
+      <"$CLIP_TEST_TMUX_LOG"
+    if ((looks > 1)); then
+      printf '%s\nbuffer3:100\n' "${CLIP_TEST_TOP_LATER:-buffer4:100}"
+    else printf 'buffer4:100\nbuffer3:100\n'; fi ;;
   load-buffer) cat >"$CLIP_TEST_COPY_LOG" ;;
   *) exit 31 ;;
 esac
@@ -355,19 +367,28 @@ else
   _fail "stale source copy never touches the workstation clipboard"
 fi
 
-# set-clipboard off keeps a client copy in tmux's buffer, off the clipboard.
+# set-clipboard off keeps a cleaned copy in tmux's buffer, off the
+# clipboard, as copy mode's own copies stay.
 rm -f "$test_root/tmux-log" "$copy_log"
 env PATH="$test_path" XDG_DATA_HOME="$test_root/clipboard-off" \
   CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
-  CLIP_TEST_CLIPBOARD=off "$clip" copy --client /dev/ttys007 --pane %7 <"$payload"
+  CLIP_TEST_CLIPBOARD=off "$clip" copy --clean --width 40 --client /dev/ttys007 --pane %7 \
+  <"$payload"
 _clip_equal "$payload" "$copy_log"
 _assert_exit "set-clipboard off still fills the tmux buffer" 0 "$?"
 _assert_contains "set-clipboard off loads the buffer without -w" \
   'load-buffer -' "$(cat "$test_root/tmux-log")"
 _assert_not_contains "set-clipboard off sends nothing to the clipboard" \
   'load-buffer -w' "$(cat "$test_root/tmux-log")"
+# A plain client copy, prefix o's, writes the clipboard whatever the option.
+rm -f "$test_root/tmux-log" "$copy_log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/clipboard-off" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  CLIP_TEST_CLIPBOARD=off "$clip" copy --client /dev/ttys007 --pane %7 <"$payload"
+_assert_contains "a plain client copy ignores set-clipboard off" \
+  'load-buffer -w -t /dev/ttys007 -' "$(cat "$test_root/tmux-log")"
 
-# A copy overtaken by a newer one (tmux's @clip_copy_seq moved on) records
+# A copy overtaken by a newer one (tmux's CLIP_COPY_SEQ moved on) records
 # history but publishes nothing; the current one publishes.
 rm -f "$copy_log"
 env PATH="$test_path" XDG_DATA_HOME="$test_root/overtaken" \
@@ -383,6 +404,20 @@ env PATH="$test_path" XDG_DATA_HOME="$test_root/overtaken" \
   CLIP_TEST_SEQ=8 "$clip" copy --seq s8 --client /dev/ttys007 --pane %7 <"$payload"
 _clip_equal "$payload" "$copy_log"
 _assert_exit "the newest copy publishes" 0 "$?"
+_assert_not_contains "the client is found among all clients, not by display-message -c" \
+  'display-message -p -c' "$(cat "$test_root/tmux-log")"
+# Any other copy made while this one cleaned adds a newer tmux buffer, and
+# wins.
+rm -f "$copy_log" "$test_root/tmux-log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/raw-overtaken" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  CLIP_TEST_SEQ=8 CLIP_TEST_TOP_LATER=buffer5:101 \
+  "$clip" copy --seq s8 --client /dev/ttys007 --pane %7 <"$payload"
+_assert_exit "a copy overtaken by a newer buffer is not an error" 0 "$?"
+_assert_file_missing "a copy overtaken by a newer buffer does not publish" "$copy_log"
+history_files=("$test_root/raw-overtaken/clip"/*)
+_clip_equal "$payload" "${history_files[0]}"
+_assert_exit "a copy overtaken by a newer buffer is still recorded" 0 "$?"
 
 # An unusable history must not cost a client copy: it publishes unrecorded.
 rm -f "$copy_log" "$test_root/tmux-log"
@@ -395,7 +430,17 @@ _assert_exit "a client copy survives an unusable history" 0 "$?"
 _clip_equal "$payload" "$copy_log"
 _assert_exit "an unusable history publishes the selection as captured" 0 "$?"
 _assert_contains "an unusable history is reported to the client" \
-  'display-message -c /dev/ttys007 clip: history unavailable' "$(cat "$test_root/tmux-log")"
+  'display-message -c /dev/ttys007 -t %7 clip: history unavailable' "$(cat "$test_root/tmux-log")"
+# tmux 3.2 cannot aim a message at a client; the notice still shows.
+rm -f "$copy_log" "$test_root/tmux-log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/no-history" CLIP_TEST_NO_C=1 \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --clean --width 40 --client /dev/ttys007 --pane %7 <"$payload" 2>/dev/null
+_assert_exit "a client copy works where display-message has no -c" 0 "$?"
+_clip_equal "$payload" "$copy_log"
+_assert_exit "a client copy publishes where display-message has no -c" 0 "$?"
+_assert_contains "without display-message -c the notice goes to the pane's client" \
+  'display-message -t %7 clip: history unavailable' "$(cat "$test_root/tmux-log")"
 
 printf 'unchanged workstation clipboard' >"$copy_log"
 env PATH="$test_path" XDG_DATA_HOME="$test_root/history-only" \

@@ -556,17 +556,26 @@ it as shown. To clean text by hand, pipe it through `clip clean --width N`
 The cleaned text is the one copy published: `pipe-and-cancel` leaves tmux's
 own buffer and OSC 52 write alone, and `clip` sends the cleaned text to the
 pressing client with `load-buffer -w` (plain `load-buffer` under
-`set-clipboard off`) and records it in history. Cleaning takes about 50 ms
-for a reply, so each `Y` bumps `@clip_copy_seq`, and a `Y` copy that a later
-`Y` has overtaken records history but does not publish over it. The raw keys
-do not take part: an Enter pressed while a slower `Y` is still cleaning can
-be overwritten when that `Y` lands.
+`set-clipboard off`, as copy mode's own copies stay in tmux's buffer) and
+records it in history. Cleaning takes about 50 ms for a reply, so a slow `Y`
+can finish after a newer copy. It does not publish over one: each `Y` bumps
+the hidden global environment variable `CLIP_COPY_SEQ`, and `clip` drops a
+`Y` copy that a later `Y` has overtaken, or that finds a newer tmux buffer
+than the one on top when it began, which any other copy (Enter, a click,
+`prefix o`) adds. The overtaken copy is still recorded in history. A copy
+with nothing selected adds no buffer, so it does not cancel a pending `Y`.
+The counter is not a tmux option because setting an option redraws every
+client, and tmux skips the clipboard write for a client with a redraw
+pending.
 
 Failures fall back to the copy as shown where they can. If the filter fails
 or cleans the selection to nothing, `clip` copies it as captured; if the
 history directory is unusable, it still publishes the selection and says so;
 without `clip` on the server's `PATH`, tmux loads the selection itself. If
-`clip` fails outright, tmux says so and points at Enter.
+`clip` fails outright, tmux says so and points at Enter. tmux 3.2 cannot aim
+a message at one client, so there its notices go to the client tmux picks,
+which may be another session's; the copy itself still reaches the pressing
+client.
 
 ## Image paste
 
