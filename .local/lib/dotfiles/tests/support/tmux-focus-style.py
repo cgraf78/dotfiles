@@ -1709,6 +1709,469 @@ class LeafStyleTest(unittest.TestCase):
         )
         self.assertEqual("", keys(shell))
 
+    # Right-click menus and the command palette. These cases read client
+    # state through list-clients, which every supported tmux targets
+    # correctly (tmux 3.2 cannot aim display-message -c at a client).
+    def client_pane(self, client: Client) -> str:
+        rows = self.tmux("list-clients", "-F", "#{client_tty} #{pane_id}").stdout.splitlines()
+        return next((row.split()[1] for row in rows if row.split()[0] == client.tty), "")
+
+    def show(self, target: str, fmt: str) -> str:
+        return self.tmux("display-message", "-p", "-t", target, fmt).stdout.strip()
+
+    def wait_drawn(self, client: Client, needle: bytes, description: str) -> None:
+        """Service the client until its terminal output contains needle."""
+        seen = bytearray()
+
+        def drawn() -> bool:
+            seen.extend(client.pump(0.05))
+            return needle in seen
+
+        wait_until(drawn, description)
+
+    def tmux_at_least(self, major: int, minor: int) -> bool:
+        match = re.search(r"(\d+)\.(\d+)", self.tmux("-V").stdout)
+        return match is not None and (int(match[1]), int(match[2])) >= (major, minor)
+
+    def right_click(
+        self, client: Client, x: int, y: int, *, meta: bool = False, opens: bytes = b""
+    ) -> None:
+        """Press and release the right button at 1-based cell x, y (SGR).
+
+        Earlier output is drained first, so a wait_drawn after the click sees
+        only what the click draws, not an earlier menu. With opens, the
+        release waits until the menu showing it is drawn, so the release
+        reaches that menu rather than arriving before tmux opened it.
+        """
+        client.pump(0.2)
+        button = 2 + (8 if meta else 0)
+        client.send(f"\x1b[<{button};{x};{y}M".encode())
+        if opens:
+            self.wait_drawn(client, opens, f"the menu showing {opens.decode()}")
+        else:
+            time.sleep(0.05)
+        client.send(f"\x1b[<{button};{x};{y}m".encode())
+
+    def click_pane(
+        self, client: Client, pane: str, *, meta: bool = False, row: int = 1, opens: bytes = b""
+    ) -> None:
+        """Right-click column 2 of pane row ROW (0-based), below the top status line."""
+        left, top = (int(n) for n in self.show(pane, "#{pane_left} #{pane_top}").split())
+        self.right_click(client, left + 3, top + row + 2, meta=meta, opens=opens)
+
+    def recorder_pane(self, name: str, received: pathlib.Path, *, mouse: bool) -> str:
+        """Start a window whose program records every byte it receives.
+
+        The program is a bash copy named NAME, so pane_current_command reports
+        it; with mouse it turns on mouse reporting first, as Neovim or a nested
+        tmux does.
+        """
+        tools = self.root / "programs"
+        tools.mkdir(exist_ok=True)
+        program = tools / name
+        if not program.exists():
+            shutil.copy2(shutil.which("bash") or "/bin/bash", program)
+        script = self.root / f"{name}-recorder"
+        script.write_text(
+            ("printf '\\033[?1000h\\033[?1006h'\n" if mouse else "")
+            + "stty raw -echo\n"
+            + "while IFS= read -r -d '' -n 1 byte; do printf '%s' \"$byte\" >>\"$1\"; done\n"
+        )
+        pane = self.tmux(
+            "new-window",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            shlex.join([str(program), str(script), str(received)]),
+        ).stdout.strip()
+        self.assertRegex(pane, r"^%[0-9]+$", "tmux returned no pane id")
+        wait_until(
+            lambda: (
+                self.show(pane, "#{pane_current_command} #{mouse_any_flag}")
+                == f"{name} {1 if mouse else 0}"
+            ),
+            f"{name} runs with mouse reporting {'on' if mouse else 'off'}",
+        )
+        return pane
+
+    def test_right_click_opens_the_pane_menu_on_the_pane_clicked(self) -> None:
+        """Right-click an unfocused pane, then split it from its menu.
+
+        The click selects the pane, the menu stays open after the button
+        comes up, and its split starts in that pane's directory.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        left_dir = self.root / "left dir"
+        right_dir = self.root / "right 'dir"
+        left_dir.mkdir()
+        right_dir.mkdir()
+        left = self.tmux(
+            "new-window", "-P", "-F", "#{pane_id}", "-c", str(left_dir), "sleep 30"
+        ).stdout.strip()
+        right = self.tmux(
+            "split-window",
+            "-h",
+            "-d",
+            "-t",
+            left,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            "-c",
+            str(right_dir),
+            "sleep 30",
+        ).stdout.strip()
+        self.assertRegex(right, r"^%[0-9]+$", "tmux returned no pane id")
+        wait_until(lambda: self.client_pane(client) == left, "client on the left pane")
+
+        self.click_pane(client, right)
+        wait_until(lambda: self.client_pane(client) == right, "right-click selects the pane")
+        self.wait_drawn(client, b"Split side by side", "the pane menu opens and stays open")
+        client.send(b"%")
+        window = self.show(right, "#{window_id}")
+        wait_until(lambda: self.show(window, "#{window_panes}") == "3", "the menu splits the pane")
+        new = self.client_pane(client)
+        self.assertNotIn(new, (left, right))
+        wait_until(
+            lambda: (
+                pathlib.Path(self.show(new, "#{pane_current_path}")).resolve()
+                == right_dir.resolve()
+            ),
+            "the split starts in the clicked pane's directory",
+        )
+
+        # Closing from the menu asks first, then closes the pane clicked,
+        # named explicitly because the confirmation runs without the menu's
+        # target before tmux 3.4. A second press within tmux's double-click
+        # interval would arrive as a DoubleClick key, so let it pass.
+        time.sleep(0.6)
+        self.click_pane(client, left)
+        wait_until(lambda: self.client_pane(client) == left, "right-click selects the left pane")
+        self.wait_drawn(client, b"Close the pane...", "the pane menu offers to close the pane")
+        client.send(b"x")
+        self.wait_drawn(client, b"? (y/n)", "closing asks first")
+        client.send(b"y")
+        wait_until(lambda: self.show(window, "#{window_panes}") == "2", "the pane closes")
+        panes = self.tmux("list-panes", "-t", window, "-F", "#{pane_id}").stdout.split()
+        self.assertNotIn(left, panes)
+
+        # The menu opens the task-window menu with its directory escapes
+        # intact: "shell only" opens both panes in the quoted directory.
+        self.tmux("select-pane", "-t", right)
+        wait_until(lambda: self.client_pane(client) == right, "client on the right pane")
+        before = set(self.tmux("list-windows", "-F", "#{window_id}").stdout.split())
+        client.send(b"\x02>")
+        self.wait_drawn(client, b"New task window...", "the pane menu offers a task window")
+        client.send(b"n")
+        self.wait_drawn(client, b"shell only", "the task-window menu opens")
+        client.send(b"s")
+
+        def task_window() -> str:
+            after = self.tmux("list-windows", "-F", "#{window_id}").stdout.split()
+            created = [w for w in after if w not in before]
+            return created[0] if created else ""
+
+        wait_until(lambda: task_window() != "", "the task window opens")
+        task_panes = self.tmux("list-panes", "-t", task_window(), "-F", "#{pane_id}").stdout.split()
+        self.assertEqual(2, len(task_panes))
+        # The shell pane splits from #{pane_start_path}, which tmux 3.2 lacks.
+        if not self.tmux_at_least(3, 3):
+            task_panes = task_panes[:1]
+        for task_pane in task_panes:
+            wait_until(
+                lambda task_pane=task_pane: (
+                    pathlib.Path(self.show(task_pane, "#{pane_current_path}")).resolve()
+                    == right_dir.resolve()
+                ),
+                f"{task_pane} starts in the menu pane's directory",
+            )
+
+        # Text under the pointer is copied as data, even when it starts with
+        # - or ~ (a diff line, a path), or holds quotes and $. The lines sit
+        # low in the pane, so the menu, too tall to fit below the pointer in
+        # this terminal, opens above it.
+        line = """-removed ~/x "q" $HOME"""
+        home_line = "~/notes q"
+        text = self.tmux(
+            "new-window",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            f"printf '%.0s\\n' $(seq 20); printf '%s\\n%s' '{line}' '{home_line}'; sleep 30",
+        ).stdout.strip()
+        wait_until(
+            lambda: (
+                self.tmux("capture-pane", "-p", "-t", text).stdout.splitlines()[20:22]
+                == [line, home_line]
+            ),
+            "the lines show on pane rows 20 and 21",
+        )
+        wait_until(lambda: self.client_pane(client) == text, "client on the text pane")
+        for row, expected in ((20, line), (21, home_line)):
+            time.sleep(0.6)
+            self.click_pane(client, text, row=row, opens=b"Copy the line")
+            client.send(b"l")
+            wait_until(
+                lambda expected=expected: self.tmux("show-buffer", check=False).stdout == expected,
+                f"pane row {row} is copied as it reads",
+            )
+
+        # Clicked low in the pane, the menu opens above the pointer rather
+        # than over it, where the button coming up would close it or run the
+        # item under the pointer: nothing has run when it comes up, and the
+        # menu is still open for the split. Row 16 leaves room above for the
+        # menu inside the window: since tmux 3.8 a menu cannot cover the
+        # status line, which older versions let it borrow.
+        time.sleep(0.6)
+        self.click_pane(client, text, row=16, opens=b"Close the pane")
+        client.pump(0.3)
+        self.assertEqual("1", self.show(text, "#{window_panes}"))
+        self.assertEqual(text, self.client_pane(client))
+        client.send(b"%")
+        wait_until(
+            lambda: self.show(text, "#{window_panes}") == "2", "the menu stayed open for the split"
+        )
+
+    def test_a_program_using_the_mouse_keeps_the_right_click(self) -> None:
+        """A mouse-reporting program gets the right-click; Option opens the menu."""
+        client = Client(self)
+        self.clients.append(client)
+        received = self.root / "mouse-received"
+        pane = self.recorder_pane("mouseapp", received, mouse=True)
+        wait_until(lambda: self.client_pane(client) == pane, "client on the program's pane")
+
+        self.click_pane(client, pane)
+        wait_until(
+            lambda: received.exists() and b"\x1b[<2;" in received.read_bytes(),
+            "the program receives the right-click",
+        )
+        # The menu is not drawn over it: a following key reaches the program.
+        client.send(b"q")
+        wait_until(lambda: received.read_bytes().endswith(b"q"), "keys still go to the program")
+
+        time.sleep(0.6)
+        self.click_pane(client, pane, meta=True)
+        self.wait_drawn(client, b"Split side by side", "Option-right-click opens the menu")
+        # The menu takes C-c, which closes it, so only q reaches the program.
+        # (A client's first Escape after attaching can be read as the start
+        # of a terminal reply, so these cases close menus with C-c.)
+        before = received.read_bytes()
+        client.send(b"\x03")
+        client.pump(0.2)
+        client.send(b"q")
+        wait_until(lambda: received.read_bytes() == before + b"q", "the menu has closed")
+
+    def test_menu_items_grey_out_where_they_cannot_apply(self) -> None:
+        """Greyed items ignore their key; the same items work when they apply.
+
+        After each greyed key the menu must still be open, so a following key
+        that applies proves the greyed one was ignored rather than chosen.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        # One window holding one pane: zoom and moving the window cannot apply.
+        self.tmux("kill-pane", "-t", self.inactive)
+        window = self.show(self.active, "#{window_id}")
+
+        def windows() -> list[str]:
+            return self.tmux("list-windows", "-F", "#{window_id}").stdout.split()
+
+        client.send(b"\x02>")
+        self.wait_drawn(client, b"Zoom", "prefix > opens the pane menu")
+        client.send(b"z")
+        client.pump(0.3)
+        client.send(b"%")
+        wait_until(lambda: self.show(window, "#{window_panes}") == "2", "the menu stays open")
+        self.assertEqual("0", self.show(window, "#{window_zoomed_flag}"), "zoom is greyed out")
+
+        client.send(b"\x02<")
+        self.wait_drawn(client, b"Move left", "prefix < opens the window menu")
+        client.send(b"l")
+        client.send(b"r")
+        client.pump(0.3)
+        self.assertEqual([window], windows(), "moving the only window is greyed out")
+        client.send(b"c")
+        wait_until(lambda: len(windows()) == 2, "the window menu stays open")
+        self.assertEqual(window, windows()[0])
+
+        # Back on the first window, which now has two panes, zoom applies.
+        self.tmux("select-window", "-t", window)
+        wait_until(
+            lambda: self.tmux("list-clients", "-F", "#{window_id}").stdout.strip() == window,
+            "client back on the first window",
+        )
+        client.send(b"\x02>")
+        self.wait_drawn(client, b"Zoom", "prefix > opens the pane menu again")
+        client.send(b"z")
+        wait_until(lambda: self.show(window, "#{window_zoomed_flag}") == "1", "zoom applies")
+
+    def test_the_window_menu_acts_on_the_tab_clicked(self) -> None:
+        """Right-click background tabs to move, rename and close them."""
+        client = Client(self)
+        self.clients.append(client)
+        # A fixed-width status-left lets the clicks aim at the tabs.
+        self.tmux("set-option", "-g", "status-left", "[S] ")
+        first = self.show(self.active, "#{window_id}")
+        self.tmux("rename-window", "-t", first, "one")
+        second = self.tmux(
+            "new-window", "-d", "-n", "two", "-P", "-F", "#{window_id}", "sleep 30"
+        ).stdout.strip()
+        third = self.tmux(
+            "new-window", "-d", "-n", "three", "-P", "-F", "#{window_id}", "sleep 30"
+        ).stdout.strip()
+
+        def order() -> list[str]:
+            return self.tmux("list-windows", "-F", "#{window_id}").stdout.split()
+
+        self.assertEqual([first, second, third], order())
+        # "[S] " then " 1:one " then a space: tab two starts at cell 13.
+        self.right_click(client, 15, 1)
+        self.wait_drawn(client, b"Move right", "a right-click on a tab opens its window menu")
+        client.send(b"r")
+        wait_until(lambda: order() == [first, third, second], "the clicked window moves right")
+        # A right-click selects the tab, as it selects a pane: since tmux 3.8
+        # a background tab's menu would draw on that hidden window.
+        self.assertEqual(second, self.tmux("list-clients", "-F", "#{window_id}").stdout.strip())
+
+        # Renaming starts from the clicked window's name and renames it.
+        time.sleep(0.6)
+        self.right_click(client, 15, 1)
+        self.wait_drawn(client, b"Rename...", "the moved tab's menu opens")
+        client.send(b",")
+        self.wait_drawn(client, b"three", "the prompt starts from the clicked window's name")
+        # A quote in the answer stays data (tmux 3.2 reparses the template).
+        client.send(b'!"\r')
+        wait_until(
+            lambda: self.show(third, "#{window_name}") == 'three!"', "the clicked window is renamed"
+        )
+        self.assertEqual("one", self.show(first, "#{window_name}"))
+        self.assertEqual(third, self.tmux("list-clients", "-F", "#{window_id}").stdout.strip())
+
+        # ' 2:three!" ' now sits where " 2:two " was; " 3:two " starts at cell 25.
+        # Closing asks first, as prefix X does, then returns to the window
+        # you were on.
+        time.sleep(0.6)
+        self.right_click(client, 27, 1)
+        self.wait_drawn(client, b"Close the window...", "the last tab's menu opens")
+        client.send(b"X")
+        self.wait_drawn(client, b"kill-window two? (y/n)", "closing names the window and asks")
+        client.send(b"y")
+        wait_until(lambda: order() == [first, third], "the clicked window closes")
+        self.assertEqual(third, self.tmux("list-clients", "-F", "#{window_id}").stdout.strip())
+
+        # The session name opens the session menu, whose rename renames the
+        # client's session.
+        time.sleep(0.6)
+        self.right_click(client, 2, 1)
+        self.wait_drawn(client, b"Renumber windows", "the session menu opens")
+        client.send(b"$")
+        self.wait_drawn(client, b"focus", "the prompt starts from the session's name")
+        client.send(b"!\r")
+        wait_until(
+            lambda: self.tmux("list-clients", "-F", "#{session_name}").stdout.strip() == "focus!",
+            "the session is renamed",
+        )
+
+    def test_option_space_opens_the_command_palette(self) -> None:
+        """Pick a binding in the palette and see it run on the pane left.
+
+        A stand-in fzf picks the entry named by $PALETTE_PICK. The helper is
+        tmux-tools' tmux-command-palette; without it, the key says so.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        path = self.tmux("show-environment", "-g", "PATH", check=False).stdout.strip()
+        base_path = path.partition("=")[2] if path.startswith("PATH=") else os.environ["PATH"]
+        # Dropping the helper's directory may drop this tmux with it (both
+        # install into ~/.local/bin), so keep the same tmux first on PATH.
+        same_tmux = self.root / "tmux-bin"
+        same_tmux.mkdir()
+        (same_tmux / "tmux").symlink_to(shutil.which("tmux") or "tmux")
+        without_helper = ":".join(
+            [str(same_tmux)]
+            + [
+                d
+                for d in base_path.split(":")
+                if d and not (pathlib.Path(d) / "tmux-command-palette").exists()
+            ]
+        )
+        self.tmux("set-environment", "-g", "PATH", without_helper)
+        client.send(b"\x1b ")
+        wait_until(
+            lambda: (
+                "needs tmux-command-palette" in self.tmux("show-messages", "-t", client.tty).stdout
+            ),
+            "Option-Space without the helper says what it needs",
+        )
+        helper = shutil.which("tmux-command-palette", path=base_path)
+        if helper is None:
+            self.skipTest("tmux-tools' tmux-command-palette is not installed")
+
+        stub = self.root / "palette-bin"
+        stub.mkdir()
+        (stub / "tmux-command-palette").symlink_to(helper)
+        offered = self.root / "offered"
+        fzf = stub / "fzf"
+        fzf.write_text(
+            "#!/bin/sh\n"
+            f"cat >'{offered}.tmp' && mv '{offered}.tmp' '{offered}'\n"
+            '[ -n "$PALETTE_PICK" ] || exit 130\n'
+            f"grep -F -m 1 -- \"$PALETTE_PICK\" '{offered}'\n"
+        )
+        fzf.chmod(0o755)
+        self.tmux("set-environment", "-g", "PATH", f"{stub}:{without_helper}")
+        record = self.root / "palette-record"
+        self.tmux(
+            "bind-key",
+            "-N",
+            "Record the pane for the palette test",
+            "F12",
+            "run-shell",
+            f"echo #{{pane_id}} >>'{record}'",
+        )
+        version = self.tmux("-V").stdout
+        match = re.search(r"(\d+)\.(\d+)", version)
+        types_for_client = match is not None and (int(match[1]), int(match[2])) >= (3, 4)
+
+        def palette(pick: str) -> None:
+            offered.unlink(missing_ok=True)
+            self.tmux("set-environment", "-g", "PALETTE_PICK", pick)
+            client.send(b"\x1b ")
+            wait_until(offered.exists, "the palette offers the noted bindings")
+
+        pane = self.client_pane(client)
+        palette("Record the pane for the palette test")
+        entries = offered.read_text()
+        self.assertRegex(entries, r"(?m)^Open the pane menu +prefix >\tprefix\t>$")
+        self.assertRegex(entries, r"(?m)^Open the command palette +M-Space\troot\tM-Space$")
+        self.assertNotIn("MouseDown3", entries, "mouse bindings are left out")
+        if not types_for_client:
+            wait_until(
+                lambda: "Press F12" in self.tmux("show-messages", "-t", client.tty).stdout,
+                "older tmux names the key to press",
+            )
+            client.send(b"\x1b[24~")
+        wait_until(
+            lambda: record.exists() and record.read_text() == f"{pane}\n",
+            "the picked binding runs on the pane the palette came from",
+        )
+
+        # A nested tmux reporting mouse gets the key, so its own palette opens.
+        received = self.root / "nested-received"
+        nested = self.recorder_pane("tmux", received, mouse=True)
+        offered.unlink(missing_ok=True)
+        client.send(b"\x1b ")
+        wait_until(
+            lambda: received.exists() and received.read_bytes().endswith(b"\x1b "),
+            "Option-Space goes to the nested tmux",
+        )
+        self.assertFalse(offered.exists(), "this layer opens no palette")
+        # In copy mode the pane shows this layer's history, so it keeps the key.
+        self.tmux("copy-mode", "-t", nested)
+        palette("")
+        self.assertEqual(b"\x1b ", received.read_bytes()[-2:])
+
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences
         # so the captured SGR color is the pane body tmux actually painted.

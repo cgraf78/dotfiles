@@ -361,7 +361,8 @@ if command -v tmux >/dev/null 2>&1; then
       'Close this window and all its panes' \
       'Open lazygit in a popup in this directory' \
       'Paste from the clipboard' \
-      "Paste the last command output into this window's agent"; do
+      "Paste the last command output into this window's agent" \
+      'Open the command palette' 'Open the pane menu' 'Open the window menu'; do
       _assert_contains "tmux: help shows $description" "$description" "$help_keys"
     done
     copy_keys=$(tmux_cmd list-keys -T copy-mode-vi)
@@ -434,6 +435,120 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_contains 'tmux: runtime prefix X confirms, then closes the window' \
       'confirm-before -p "kill-window #W? (y/n)" kill-window' \
       "$(printf '%s\n' "$prefix_keys" | awk '$4 == "X"')"
+    # Right-click menus replace tmux's defaults. Each menu is defined once and
+    # spliced into every binding that opens it, so the keyboard and mouse
+    # bindings must carry the same items, and only position and the mouse
+    # target differ.
+    key_line() { printf '%s\n' "$1" | awk -v key="$2" '$4 == key || $4 == "\\" key'; }
+    pane_menu=$(key_line "$prefix_keys" '>')
+    window_menu=$(key_line "$prefix_keys" '<')
+    pane_mouse_menu=$(key_line "$root_keys" M-MouseDown3Pane)
+    window_mouse_menu=$(key_line "$root_keys" MouseDown3Status)
+    session_menu=$(key_line "$root_keys" MouseDown3StatusLeft)
+    # The pane menu opens below the pointer, or above it when it does not fit,
+    # rather than over it, where the button coming up would close it.
+    pane_menu_y='-y "#{?#{&&:#{e|<=:#{e|+:#{e|+:#{pane_top},#{mouse_y}},#{popup_height}},#{window_height}},#{e|<=:#{e|+:#{popup_mouse_y},#{popup_height}},#{client_height}}},#{e|+:#{popup_mouse_y},#{popup_height}},#{e|+:#{popup_mouse_y},1}}"'
+    _assert_contains 'tmux: runtime pane menu opens beside the pointer' \
+      "-x M $pane_menu_y " "$pane_mouse_menu"
+    _assert_eq 'tmux: runtime pane menu items are the same by key and by mouse' \
+      "${pane_menu#* -y P }" "${pane_mouse_menu#* "$pane_menu_y" }"
+    _assert_eq 'tmux: runtime window menu items are the same by key and by mouse' \
+      "${window_menu#* -y W }" "${window_mouse_menu#* -y W }"
+    _assert_eq 'tmux: runtime session menus are the same with and without Option' \
+      "${session_menu#* -y W }" \
+      "$(key_line "$root_keys" M-MouseDown3StatusLeft | sed 's/^.* -y W //')"
+    _assert_contains 'tmux: runtime right-click selects the pane before its menu' \
+      "select-pane -t= ; display-menu -O -t= -x M $pane_menu_y " \
+      "$(key_line "$root_keys" MouseDown3Pane | sed 's/\\"/"/g')"
+    _assert_contains 'tmux: runtime right-click selects the tab before its menu' \
+      'select-window -t = \; display-menu -O ' "$window_mouse_menu"
+    _assert_contains 'tmux: runtime right-click passes to a program using the mouse' \
+      '#{E:@pane_keeps_right_click}' "$(key_line "$root_keys" MouseDown3Pane)"
+    for label in 'Go to the top' 'Search for' 'Copy the line' \
+      'Copy the last command output' 'Copy the last N command outputs...' \
+      'Paste from clipboard history...' 'Split side by side' \
+      'Split top and bottom' 'Move to a new window' \
+      'Jump to the next pane needing attention' 'New task window...' \
+      'Open a scratch shell' 'Open the command palette...' 'Close the pane...'; do
+      _assert_contains "tmux: runtime pane menu offers $label" "$label" "$pane_menu"
+    done
+    for label in 'Move left' 'Move right' 'Rename...' 'Name automatically' \
+      'New window' 'New window after this one' 'New task window...' \
+      'Open the command palette...' 'Close the window...'; do
+      _assert_contains "tmux: runtime window menu offers $label" "$label" "$window_menu"
+    done
+    for label in 'Next session' 'Renumber windows' 'Open the command palette...'; do
+      _assert_contains "tmux: runtime session menu offers $label" "$label" "$session_menu"
+    done
+    # Respawn kills the running program without asking; marks have prefix m.
+    for label in Respawn 'Swap Marked' 'Horizontal Split'; do
+      _assert_not_contains "tmux: runtime pane menu drops tmux's $label" "$label" "$pane_menu"
+    done
+    _assert_contains 'tmux: runtime pane menu splits in the pane directory' \
+      'split-window -h -c' "$pane_menu"
+    _assert_contains 'tmux: runtime pane menu shares prefix P' \
+      'clip pick --paste-pane #{pane_id}' "$pane_menu"
+    _assert_contains 'tmux: runtime pane menu opens the task menu unexpanded' \
+      'run-shell -C' "$pane_menu"
+    _assert_contains 'tmux: runtime task menu option holds the task menu' \
+      'New task window' "$(tmux_cmd show-options -gv @task_menu)"
+    _assert_contains 'tmux: runtime pane menu closes the pane by id after asking' \
+      "kill-pane -t '#{pane_id}'" "$(printf '%s\n' "$pane_menu" | sed 's/\\"/"/g')"
+    _assert_contains 'tmux: runtime window menu closes after asking, as prefix X' \
+      'confirm-before -p' "$window_menu"
+    _assert_eq 'tmux: menu definitions stay out of pane environments' '' \
+      "$(tmux_cmd show-environment -g pane_menu_items 2>/dev/null)"
+    # A label starting with - is greyed out. Expand each label as tmux does
+    # when it builds the menu, for a lone window and pane and for neighbours.
+    label_of() {
+      printf '%s\n' "$1" | grep -o "\"[^\"]*$2[^\"]*\"" | head -n 1 | tr -d '"'
+    }
+    grey_window=$(tmux_cmd new-session -d -s dot-menu-grey -P -F '#{window_id}' 'sleep 60')
+    expand_label() {
+      tmux_cmd display-message -p -t "$1" "$(label_of "$2" "$3")"
+    }
+    _assert_eq 'tmux: Move left is greyed out with one window' '-Move left' \
+      "$(expand_label "$grey_window" "$window_menu" 'Move left')"
+    _assert_eq 'tmux: Move right is greyed out with one window' '-Move right' \
+      "$(expand_label "$grey_window" "$window_menu" 'Move right')"
+    _assert_eq 'tmux: Zoom is greyed out with one pane' '-Zoom' \
+      "$(expand_label "$grey_window" "$pane_menu" 'Zoom')"
+    _assert_eq 'tmux: the attention jump is greyed out with nothing waiting' \
+      '-Jump to the next pane needing attention' \
+      "$(expand_label "$grey_window" "$pane_menu" 'Jump to the next pane needing attention')"
+    _assert_eq 'tmux: Name automatically is greyed out while it is on' \
+      '-Name automatically' "$(expand_label "$grey_window" "$window_menu" 'Name automatically')"
+    grey_second=$(tmux_cmd new-window -d -t dot-menu-grey: -P -F '#{window_id}' 'sleep 60')
+    grey_pane=$(tmux_cmd split-window -d -t "$grey_window" -P -F '#{pane_id}' 'sleep 60')
+    _assert_eq 'tmux: Move right applies to the first of two windows' 'Move right' \
+      "$(expand_label "$grey_window" "$window_menu" 'Move right')"
+    _assert_eq 'tmux: Move left applies to the second of two windows' 'Move left' \
+      "$(expand_label "$grey_second" "$window_menu" 'Move left')"
+    _assert_eq 'tmux: Move right is greyed out at the last window' '-Move right' \
+      "$(expand_label "$grey_second" "$window_menu" 'Move right')"
+    _assert_eq 'tmux: Zoom applies with two panes' 'Zoom' \
+      "$(expand_label "$grey_window" "$pane_menu" 'Zoom')"
+    tmux_cmd set-option -p -t "$grey_pane" @term_notify_pending 'done'
+    _assert_eq 'tmux: the attention jump applies when another pane waits' \
+      'Jump to the next pane needing attention' \
+      "$(expand_label "$grey_window" "$pane_menu" 'Jump to the next pane needing attention')"
+    tmux_cmd rename-window -t "$grey_window" manual
+    _assert_eq 'tmux: Name automatically applies after a manual rename' \
+      'Name automatically' "$(expand_label "$grey_window" "$window_menu" 'Name automatically')"
+    tmux_cmd kill-session -t dot-menu-grey
+
+    # Option-Space opens the palette at the innermost tmux: it goes inward to
+    # a transport or nested tmux reporting mouse, except from a pane in a
+    # mode, and says what it needs until tmux-tools has the helper.
+    palette_key=$(key_line "$root_keys" M-Space)
+    _assert_contains 'tmux: runtime Option-Space opens the command palette' \
+      'tmux-command-palette --client #{q:client_name}' "$palette_key"
+    _assert_contains 'tmux: runtime Option-Space goes to a nested tmux' \
+      'send-keys M-Space' "$palette_key"
+    _assert_contains 'tmux: runtime Option-Space stays here in copy mode' \
+      '#{pane_in_mode}' "$palette_key"
+    _assert_contains 'tmux: runtime Option-Space explains a missing helper' \
+      'needs tmux-command-palette' "$palette_key"
     for key in '"' % c; do
       _assert_contains "tmux: runtime prefix $key keeps the pane directory" \
         '-c "#{pane_current_path}"' \
@@ -1084,7 +1199,12 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_another_focused_client_does_not_strand_a_mark \
     test_prefix_A_pastes_the_last_output_into_the_agent \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
-    test_prefix_n_opens_a_task_window; do
+    test_prefix_n_opens_a_task_window \
+    test_right_click_opens_the_pane_menu_on_the_pane_clicked \
+    test_a_program_using_the_mouse_keeps_the_right_click \
+    test_menu_items_grey_out_where_they_cannot_apply \
+    test_the_window_menu_acts_on_the_tab_clicked \
+    test_option_space_opens_the_command_palette; do
     _assert_contains "tmux: PTY runs $pty_case" "$pty_case" "$pty_output"
   done
 else

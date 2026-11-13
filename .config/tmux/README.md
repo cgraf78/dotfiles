@@ -14,6 +14,9 @@ other end.
 
 - The default-server Continuum coordinator, its cheap save gate, and
   clipboard-history paste use `tmux-tools`.
+- Option-Space opens `tmux-tools`' `tmux-command-palette`, an fzf picker
+  over every key binding that has a note; until `tmux-tools` provides it, the
+  key says so.
 - `prefix o` and `prefix O` copy the last one or N command output blocks
   through `tmux-tools`' `tmux-copy-last-output`, and `prefix A` pastes the
   last block into the window's agent through its `--print` mode.
@@ -236,6 +239,64 @@ way `prefix x` closes one pane (tmux's own `prefix &` still works too).
 `prefix J` pulls a chosen pane in beside the current one, so a pane can be
 popped out to watch full-size and put back afterwards.
 
+## Menus and Command Palette
+
+Option-Space opens a command palette: an fzf popup listing every key binding
+that has a note (the list `prefix ?` shows), description first and key
+second, such as `Copy the last N command outputs   prefix O`. Type to filter,
+Enter runs the binding, Escape closes it. The popup only picks: once it has
+closed, tmux types the chosen key for your client (tmux 3.4 or newer), so the
+binding acts on the pane you opened the palette from, and its prompts and
+menus open over that pane. On older tmux the palette turns the prefix on and
+names the key to press. The list leaves out mouse bindings and tmux's
+`Select window 0` to `9`. The palette is `tmux-tools`' `tmux-command-palette`
+and needs fzf. Option-Space needs a terminal that sends Option as Meta:
+WezTerm does for the left Option key, while macOS Terminal, iTerm2 and VS
+Code need their Option-as-Meta setting. Every right-click menu opens the
+palette too.
+
+The key goes where the other root keys go: into SSH, mosh, ET or a nested
+tmux while it reports mouse, so the innermost tmux opens its own palette, and
+it stays at this layer while the pane is in copy mode. A remote tmux that has
+not loaded this config yet passes it to its program instead.
+
+Right-click menus replace tmux's defaults:
+
+- The pane menu (right-click a pane, or `prefix >`) copies the last command
+  output or the last N, pastes from clipboard history, splits in the pane's
+  directory, zooms, moves the pane to a new window, jumps to the next pane
+  needing attention, opens a task window, a scratch shell or the palette, and
+  closes the pane after asking. Under the pointer it also offers tmux's word,
+  line and link items; copies go to the clipboard and clipboard history. In
+  copy mode, where a right-click still leaves copy mode, Option-right-click
+  or `prefix >` adds tmux's scroll-to-top and bottom items. Right-clicking a
+  pane selects it first.
+- The window menu (right-click a tab, or `prefix <`) moves the window left or
+  right, stopping at the ends as Alt-Shift-[ and ] do, renames it, names it
+  automatically again, opens a window or task window, opens the palette, and
+  closes the window after asking, as `prefix X` does. Right-clicking a tab
+  selects it first, as right-clicking a pane does.
+- The session menu (right-click the session name) stays close to tmux's:
+  next and previous session, renumber, rename, new session or window in the
+  pane's directory, and the palette.
+
+A program using the mouse (Neovim, a nested tmux, a remote session reporting
+mouse) keeps the plain right-click, as with tmux's defaults; Option-right-click
+always opens the menu. Items that cannot apply are greyed out, such as Zoom in
+a window with one pane or Move left on the first window. A click opens a menu
+and another chooses, and press, drag and release also works. The pane menu
+opens below the pointer, or above it near the bottom of the screen, rather than
+over it, where the release of the click would close it. Each item's key
+matches the prefix binding it mirrors, and Space opens the palette. tmux's
+Respawn items (which kill the running program without asking), its marked-pane
+items and its swap up and down are left out; `prefix m` and Alt-Shift-H/J/K/L
+cover those.
+
+Each menu's title and items are defined once, in `%hidden` config variables
+(tmux 3.2 or newer), and spliced into the mouse, Option-mouse and keyboard
+bindings, which differ only in position. Items reuse the key bindings' own
+commands where they can. tmux leaves mouse bindings out of `prefix ?`.
+
 ## Key Handling
 
 The config intentionally enables extended keys, true color, focus events, OSC
@@ -245,8 +306,9 @@ some require a fresh tmux server, not just `tmux source-file`.
 
 Mouse bindings should preserve nested behavior. When `#{mouse_any_flag}` is
 set, tmux forwards the event inward with `send-keys -M`, so Neovim, a nested
-tmux, or a remote session decides at its own layer. Ctrl-click makes three
-exceptions, all format-only:
+tmux, or a remote session decides at its own layer. Right-click does so too;
+Option-right-click opens this layer's menu. Ctrl-click makes three exceptions,
+all format-only:
 
 - A known agent (`@pane_agent`) never gets it, so links and file paths in its
   output behave as in a shell. Codex ignores the click, and Claude opens only
