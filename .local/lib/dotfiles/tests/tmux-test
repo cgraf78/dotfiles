@@ -1243,6 +1243,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_child_lease_changes_publish_their_session_at_once \
     test_nested_attention_reaches_the_terminal_at_once \
     test_prefix_A_pastes_the_last_output_into_the_agent \
+    test_clip_copy_reaches_its_client_while_another_is_active \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
     test_prefix_n_opens_a_task_window \
     test_right_click_opens_the_pane_menu_on_the_pane_clicked \
