@@ -378,6 +378,38 @@ _clip_equal "$payload" "$copy_log"
 _assert_exit "a client copy publishes where display-message has no -c" 0 "$?"
 _assert_contains "without display-message -c the notice goes to the pane's client" \
   'display-message -t %7 clip: history unavailable' "$(cat "$test_root/tmux-log")"
+# With no history, empty input copies nothing (tmux ignores an empty
+# load-buffer), and a vanished pane records nothing: the messages say so.
+rm -f "$copy_log" "$test_root/tmux-log"
+mkdir -p "$test_root/stage"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/no-history" TMPDIR="$test_root/stage" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --client /dev/ttys007 --pane %7 </dev/null 2>"$test_root/no-history-error"
+_assert_exit "empty input with no history is not a copy" 1 "$?"
+_assert_file_missing "empty input with no history publishes nothing" "$copy_log"
+_assert_contains "empty input with no history says nothing was copied" \
+  'nothing was copied' "$(cat "$test_root/no-history-error")"
+_assert_not_contains "empty input with no history claims no copy" \
+  'copied without recording' "$(cat "$test_root/no-history-error") $(cat "$test_root/tmux-log")"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/no-history" CLIP_TEST_PANE=%8 \
+  TMPDIR="$test_root/stage" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --client /dev/ttys007 --pane %7 <"$payload" 2>"$test_root/no-history-error"
+_assert_exit "a vanished pane with no history is not a copy" 1 "$?"
+_assert_contains "a vanished pane with no history says nothing was recorded" \
+  'nothing was copied or recorded' "$(cat "$test_root/no-history-error")"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/pane-gone" CLIP_TEST_PANE=%8 \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --client /dev/ttys007 --pane %7 <"$payload" 2>"$test_root/pane-gone-error"
+_assert_contains "a vanished pane with history says the selection is kept" \
+  'nothing was copied; history retained' "$(cat "$test_root/pane-gone-error")"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/no-history" TMPDIR="$test_root/stage" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --client /dev/ttys007 --pane %7 <"$payload" 2>/dev/null
+_assert_exit "a copy with no history stages outside it and publishes" 0 "$?"
+_assert_eq "a copy with no history leaves no staging file" "" \
+  "$(command ls -A "$test_root/stage")"
+
 # A history record that fails still lets the copy through, and says so.
 rm -f "$copy_log" "$test_root/tmux-log"
 cat >"$backend_bin/mv" <<'EOF'
@@ -599,6 +631,8 @@ _assert_exit "empty exact-client copy does not falsely claim clipboard clearing"
 history_files=("$test_root/empty-client/clip"/*)
 _clip_equal "$payload" "${history_files[0]}"
 _assert_exit "unsupported empty client clear still preserves exact history" 0 "$?"
+_assert_contains "unsupported empty client clear says the history is kept" \
+  'empty history retained' "$(cat "$test_root/empty-client-error")"
 
 # Privacy upgrades run one chmod over the whole history, under the option
 # parsing of BSD, BusyBox and POSIX chmod too (GNU's POSIXLY_CORRECT mode),
@@ -624,6 +658,23 @@ for entry in "$test_root/chmod-batch/clip"/*; do
   _assert_eq "history entry ${entry##*/} is private after the batch" 600 "$(_clip_mode "$entry")"
 done
 rm -f "$backend_bin/chmod"
+# An `&` in the data path must reach chmod as itself. Bash 5.2's
+# patsub_replacement would turn "${names[@]/#/$dir/}" into the sibling
+# directory without it, here holding world-readable entries of the same
+# names, so a misdirected chmod would succeed there and leave these alone.
+printf 'entry' | env PATH="$runtime_bin" XDG_DATA_HOME="$test_root/a&b" \
+  "$clip" capture --history-only
+"$(command -v chmod)" 644 "$test_root/a&b/clip"/*
+mkdir -p "$test_root/ab"
+cp -Rp "$test_root/a&b/clip" "$test_root/ab/clip"
+env PATH="$runtime_bin" XDG_DATA_HOME="$test_root/a&b" "$clip" list >/dev/null
+_assert_exit "clip list succeeds with an & in the data path" 0 "$?"
+for entry in "$test_root/a&b/clip"/*; do
+  _assert_eq "history entry under an & path is private" 600 "$(_clip_mode "$entry")"
+done
+for entry in "$test_root/ab/clip"/*; do
+  _assert_eq "a sibling of an & path is left alone" 644 "$(_clip_mode "$entry")"
+done
 
 echo
 echo "=== Empty picker is an expected no-selection outcome ==="

@@ -114,9 +114,12 @@ _entries() {
   ((${#candidates[@]})) || return 0
   # One chmod for the whole history keeps every copy as fast with 200 entries
   # as with one; only a failure needs the pass that tells an entry pruned
-  # since the listing from a real error. No `--`: BSD, BusyBox and POSIX
-  # getopt stop at the mode, so it would name a file; the paths are absolute.
-  if chmod 600 "${candidates[@]/#/$CLIP_DIR/}" 2>/dev/null; then
+  # since the listing from a real error. It runs inside the directory, as
+  # prefixing each name would need a pattern substitution, where Bash 5.2's
+  # patsub_replacement turns an `&` in the path into the matched text. No
+  # `--`: BSD, BusyBox and POSIX getopt stop at the mode, so it would name a
+  # file; _entry names never start with `-`.
+  if (cd -- "$CLIP_DIR" && chmod 600 "${candidates[@]}") 2>/dev/null; then
     ENTRIES=("${candidates[@]}")
     return 0
   fi
@@ -171,15 +174,16 @@ clip_save() {
 # for the most recently active client when the named one has no session
 # target. Even a vanished client leaves recoverable bytes.
 _client_target() {
-  local actual clients
+  local actual clients kept='nothing was copied or recorded'
+  ((! recorded)) || kept='nothing was copied; history retained'
   clients=$(tmux list-clients -F '#{client_name}') || return
   [[ $'\n'"$clients"$'\n' == *$'\n'"$client"$'\n'* ]] || {
-    echo 'clip: initiating tmux client is no longer attached' >&2
+    echo "clip: initiating tmux client is no longer attached; $kept" >&2
     return 1
   }
   actual=$(tmux display-message -p -t "$pane" '#{pane_id}') || return
   [[ "$actual" == "$pane" ]] || {
-    echo 'clip: source tmux pane is no longer available; history retained' >&2
+    echo "clip: source tmux pane is no longer available; $kept" >&2
     return 1
   }
 }
@@ -196,7 +200,7 @@ _notice() {
 
 clip_copy() {
   local -a CLIP_CMD
-  local has_content=0 recorded=0 status
+  local has_content=0 recorded=0 usable=0 status
   if [[ -n "$client" ]]; then
     CLIP_CMD=(tmux load-buffer -w -t "$client" -)
   else
@@ -206,14 +210,16 @@ clip_copy() {
       return 1
     }
   fi
-  if ! _temporary; then
+  if _temporary; then
+    usable=1
+  else
     # A copy to tmux must not be lost to an unusable history directory:
-    # publish the selection as it came, unrecorded.
+    # stage the selection privately outside it and publish it unrecorded.
     [[ -n "$client" ]] || return 1
-    _client_target || return
-    "${CLIP_CMD[@]}" || return
-    _notice 'clip: history unavailable; copied without recording it'
-    return 0
+    capture_file=$(
+      umask 077
+      mktemp "${TMPDIR:-/tmp}/clip.XXXXXXXXXX"
+    ) || return
   fi
   cat >"$capture_file" || return
   if [[ -s "$capture_file" ]]; then has_content=1; fi
@@ -221,19 +227,33 @@ clip_copy() {
   # Record before dispatch: a failed clipboard transport must retain a private
   # recovery copy rather than lose the only copy of the user's selection. A
   # failed record still dispatches, as losing the copy too helps no one.
-  if _record; then recorded=1; else status=$?; fi
+  if ((! usable)); then
+    status=1
+  elif _record; then
+    recorded=1
+  else
+    status=$?
+  fi
   if [[ -n "$client" ]]; then
     # tmux deliberately ignores zero-byte load-buffer input. Report that limit
     # rather than claim the workstation clipboard was cleared when it was not.
     if ((has_content == 0)); then
-      echo 'clip: tmux cannot clear an empty client clipboard; empty history retained' >&2
+      if ((recorded)); then
+        echo 'clip: tmux cannot clear an empty client clipboard; empty history retained' >&2
+      else
+        echo 'clip: tmux cannot clear an empty client clipboard; nothing was copied' >&2
+      fi
       return 1
     fi
     _client_target || return
   fi
   "${CLIP_CMD[@]}" <&3 || return
   ((recorded)) && return 0
-  _notice 'clip: copied, but clipboard history could not record it'
+  if ((usable)); then
+    _notice 'clip: copied, but clipboard history could not record it'
+  else
+    _notice 'clip: history unavailable; copied without recording it'
+  fi
   [[ -n "$client" ]] || return "$status"
 }
 
