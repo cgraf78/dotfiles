@@ -534,15 +534,25 @@ and the next row continues the same path. A row that ends in a whole path at
 the edge, followed by anything else, keeps its break. The cleaned text is the
 one copy published: `pipe-and-cancel` leaves tmux's own buffer and OSC 52
 write alone, and `clip` sends the cleaned text to the pressing client with
-`load-buffer -w` and records it in history. If the filter fails, `clip`
-copies the selection as captured; if `clip` itself fails, nothing is copied
-and tmux says so, naming the key that copies the selection as shown instead.
+`load-buffer -w` (plain `load-buffer` under `set-clipboard off`) and records
+it in history. Cleaning takes about 50 ms for a reply, so every copy-mode
+copy bumps `@clip_copy_seq`, and a cleaned copy that a newer copy has
+overtaken records history but does not publish over it.
+
+Failures fall back to the copy as shown where they can. If the filter fails or
+cleans the selection to nothing, `clip` copies it as captured; if the history
+directory is unusable, it still publishes the selection and says so; without
+`clip` on the server's `PATH`, tmux loads the selection itself, as for any
+other pane. If `clip` fails outright, tmux says so and names the key that
+copies the selection as shown.
 
 `Y` copies the selection as shown, and a rectangle selection is never
 cleaned. In other panes the keys are reversed, so `Y` cleans an agent reached
-through `ssh` or a sandbox. Double- and triple-click word and line copies,
-tmux's stock `C-j`, the pane menu's word, line and link items, and
-`prefix o`/`O` copy as shown. To clean text by hand, pipe it through
+through `ssh` or a sandbox. Some copies are always as shown, in agent panes
+too: double-click (a word), triple-click (a line) and tmux's stock `C-j` in
+copy mode, the pane menu's word, line and link items, and `prefix o`/`O`. A
+quick word or line grab rarely holds a wrap, so only Enter, `C-c`, `y` and
+`Y` decide by pane. To clean text by hand, pipe it through
 `clip clean --width N` (with `--column N` when the first line started
 mid-row).
 

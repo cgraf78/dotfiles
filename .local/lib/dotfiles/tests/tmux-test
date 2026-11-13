@@ -153,12 +153,19 @@ for binding in \
   _assert_contains "tmux: preserves copy-mode binding $binding" \
     "$binding" "$tmux_content"
 done
+# shellcheck disable=SC2016 # Match the literal %hidden reference in config.
 _assert_contains 'tmux: copies as shown go through tmux and clip history' \
-  "%hidden copy_shown='send-keys -X copy-pipe-and-cancel \"clip capture --history-only\"'" \
+  '%hidden copy_shown="$copy_bump ; send-keys -X copy-pipe-and-cancel \"clip capture --history-only\""' \
+  "$tmux_content"
+_assert_contains 'tmux: every copy bumps the copy sequence' \
+  "%hidden copy_bump=\"set -gF @clip_copy_seq '#{e|+:#{@clip_copy_seq},1}'\"" \
+  "$tmux_content"
+_assert_contains 'tmux: without clip a cleaned copy falls back to tmux, honouring set-clipboard' \
+  "%hidden copy_load='tmux load-buffer #{?#{==:#{set-clipboard},off},,-w -t #{q:client_name}} -'" \
   "$tmux_content"
 # shellcheck disable=SC2016 # Match the literal %hidden reference in config.
 _assert_contains 'tmux: cleaned copies hand clip the width, column and client' \
-  'pipe-and-cancel \"clip copy --clean --width #{pane_width} --column $copy_column --client #{q:client_name} --pane #{pane_id} || tmux display-message -c #{q:client_name}' \
+  'clip copy --clean --seq s#{@clip_copy_seq} --width #{pane_width} --column $copy_column --client #{q:client_name} --pane #{pane_id} || tmux display-message -c #{q:client_name}' \
   "$tmux_content"
 _assert_contains 'tmux: only a selection that is not a rectangle is cleaned' \
   "%hidden copy_cleanable='#{&&:#{selection_present},#{!=:#{rectangle_toggle},1}}'" \
@@ -669,7 +676,7 @@ if command -v tmux >/dev/null 2>&1; then
       'copy-pipe-and-cancel \"clip capture --history-only\"' \
       "$(printf '%s\n' "$copy_keys" | awk '$4 == "y"')"
     _assert_contains 'tmux: runtime copy mode y cleans through clip in agent panes' \
-      'pipe-and-cancel \"clip copy --clean --width #{pane_width} --column' \
+      'pipe-and-cancel \"if command -v clip >/dev/null 2>&1; then clip copy --clean --seq' \
       "$(printf '%s\n' "$copy_keys" | awk '$4 == "y"')"
     _assert_contains 'tmux: runtime copy mode C-v keeps rectangle selection' \
       'rectangle-toggle' "$(printf '%s\n' "$copy_keys" | awk '$4 == "C-v"')"

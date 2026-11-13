@@ -1635,6 +1635,21 @@ class LeafStyleTest(unittest.TestCase):
         whole[3] = ("-N", str(len(gutter_rows) - 1), "cursor-down")
         self.assertEqual(" ".join(paragraph) + newline, copy(quoted, b"\r", *whole))
 
+        # Each copy bumps the sequence clip uses to drop an overtaken copy.
+        before_seq = int(self.tmux("show-options", "-gv", "@clip_copy_seq").stdout)
+        copy(quoted, b"Y", *whole)
+        after_seq = int(self.tmux("show-options", "-gv", "@clip_copy_seq").stdout)
+        self.assertEqual(before_seq + 1, after_seq, "a copy bumps @clip_copy_seq")
+
+        # Without clip on the server's PATH, tmux still copies as shown.
+        bare = self.root / "no-clip-bin"
+        bare.mkdir()
+        (bare / "tmux").symlink_to(shutil.which("tmux") or "/usr/bin/tmux")
+        self.tmux("set-environment", "-g", "PATH", f"{bare}:/usr/bin:/bin")
+        self.assertEqual(
+            "\n".join(gutter_rows) + newline, copy(quoted, b"\r", *whole), "copied as shown"
+        )
+
     def test_clipboard_popup_pastes_into_its_explicit_underlying_pane(self) -> None:
         """Drive the real popup and fzf, preserving trailing newlines."""
         if self.clip is None or shutil.which("fzf") is None:

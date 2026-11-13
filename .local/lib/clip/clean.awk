@@ -38,10 +38,11 @@ BEGIN {
     exit 2
   }
   for (i = 1; i < 256; i++) ORD[sprintf("%c", i)] = i
-  # ASCII rows skip decoding. A regex library that cannot match a byte range
-  # (some C locales) decodes every row instead, which is only slower.
-  HIGH = "[" sprintf("%c", 128) "-" sprintf("%c", 255) "]"
-  if (sprintf("%c", 200) !~ HIGH || "a" ~ HIGH) HIGH = ""
+  # ASCII rows skip decoding. The range has ASCII ends, which every regex
+  # library accepts in any locale (gawk 5.4 rejects raw high bytes in UTF-8);
+  # one that still misjudges it decodes every row, which is only slower.
+  ASCII = "^[" sprintf("%c", 1) "-" sprintf("%c", 127) "]*$"
+  if ("a~" !~ ASCII || sprintf("%c", 200) ~ ASCII) ASCII = ""
   # Message markers open a transcript entry at the left margin. A reply is
   # rendered markdown, whose wrapped rows continue under the text of their
   # list item. A prompt echo (Codex ›, Claude ❯) is the user's raw text,
@@ -370,7 +371,7 @@ function decode(s, j,    b, n, k, c) {
 }
 
 function strw(s,    j, n, total, joined, cw, prev) {
-  if (HIGH != "" && s !~ HIGH) return length(s)
+  if (ASCII != "" && s ~ ASCII) return length(s)
   total = 0
   n = length(s)
   joined = 0

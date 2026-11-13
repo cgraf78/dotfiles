@@ -161,10 +161,14 @@ _record() {
 # last line had a newline, so the shell passes that on.
 _clean() {
   local last final=0
+  local -a awk=(awk)
   last=$(tail -c 1 -- "$1" && printf x) || return
   [[ "$last" != $'\nx' ]] || final=1
-  LC_ALL=C awk -v width="$width" -v column="${column:-0}" -v final_newline="$final" \
-    -f "$CLIP_CLEAN_AWK" <"$1"
+  # The filter counts bytes. LC_ALL=C gives byte semantics to every awk but
+  # one where the C locale is UTF-8 (Android's): gawk's -b forces them there.
+  if command -v gawk >/dev/null 2>&1; then awk=(gawk -b); fi
+  LC_ALL=C "${awk[@]}" -v width="$width" -v column="${column:-0}" \
+    -v final_newline="$final" -f "$CLIP_CLEAN_AWK" <"$1"
 }
 
 # Replace the staged selection with its cleaned text. Any failure here leaves
@@ -207,9 +211,38 @@ clip_save() {
   _record
 }
 
+# Check the initiating tmux client and pane, and settle how to publish to
+# them: with set-clipboard off the copy stays in tmux's buffer, and a copy
+# that a newer one (--seq) has overtaken does not publish at all (status 3).
+_client_target() {
+  local actual clipboard newest
+  # Match an exact client name, never a prefix or whichever client happened to
+  # be active most recently. Even a vanished client leaves recoverable bytes.
+  actual=$(tmux display-message -p -c "$client" '#{client_name}') || return
+  [[ "$actual" == "$client" ]] || {
+    echo 'clip: initiating tmux client is no longer attached' >&2
+    return 1
+  }
+  actual=$(tmux display-message -p -t "$pane" \
+    '#{pane_id} #{set-clipboard} s#{@clip_copy_seq}') || return
+  read -r actual clipboard newest <<<"$actual"
+  [[ "$actual" == "$pane" ]] || {
+    echo 'clip: source tmux pane is no longer available; history retained' >&2
+    return 1
+  }
+  [[ "$clipboard" != off ]] || CLIP_CMD=(tmux load-buffer -)
+  [[ -z "$seq" || "$newest" == "$seq" ]] || return 3
+}
+
+# Tell the initiating client what happened; run-shell jobs have no stderr.
+_notice() {
+  echo "$1" >&2
+  [[ -z "$client" ]] || tmux display-message -c "$client" "$1" 2>/dev/null || :
+}
+
 clip_copy() {
   local -a CLIP_CMD
-  local has_content=0
+  local has_content=0 recorded=0 status
   if [[ -n "$client" ]]; then
     CLIP_CMD=(tmux load-buffer -w -t "$client" -)
   else
@@ -219,14 +252,27 @@ clip_copy() {
       return 1
     }
   fi
-  _temporary || return
+  if ! _temporary; then
+    # A copy to tmux must not be lost to an unusable history directory:
+    # publish the selection as it came, unrecorded.
+    [[ -n "$client" ]] || return 1
+    _client_target || {
+      status=$?
+      ((status == 3)) && return 0
+      return "$status"
+    }
+    "${CLIP_CMD[@]}" || return
+    _notice 'clip: history unavailable; copied the selection as shown'
+    return 0
+  fi
   cat >"$capture_file" || return
   if ((clean)); then _clean_capture; fi
   if [[ -s "$capture_file" ]]; then has_content=1; fi
   exec 3<"$capture_file" || return
-  _record || return
   # Record before dispatch: a failed clipboard transport must retain a private
-  # recovery copy rather than lose the only copy of the user's selection.
+  # recovery copy rather than lose the only copy of the user's selection. A
+  # failed record still dispatches, as losing the copy too helps no one.
+  if _record; then recorded=1; else status=$?; fi
   if [[ -n "$client" ]]; then
     # tmux deliberately ignores zero-byte load-buffer input. Report that limit
     # rather than claim the workstation clipboard was cleared when it was not.
@@ -234,21 +280,16 @@ clip_copy() {
       echo 'clip: tmux cannot clear an empty client clipboard; empty history retained' >&2
       return 1
     fi
-    # Match an exact client name, never a prefix or whichever client happened to
-    # be active most recently. Even a vanished client leaves recoverable bytes.
-    local actual
-    actual=$(tmux display-message -p -c "$client" '#{client_name}') || return
-    [[ "$actual" == "$client" ]] || {
-      echo 'clip: initiating tmux client is no longer attached' >&2
-      return 1
-    }
-    actual=$(tmux display-message -p -t "$pane" '#{pane_id}') || return
-    [[ "$actual" == "$pane" ]] || {
-      echo 'clip: source tmux pane is no longer available; history retained' >&2
-      return 1
+    _client_target || {
+      status=$?
+      ((status == 3)) && return 0
+      return "$status"
     }
   fi
-  "${CLIP_CMD[@]}" <&3
+  "${CLIP_CMD[@]}" <&3 || return
+  ((recorded)) && return 0
+  _notice 'clip: copied, but clipboard history could not record it'
+  [[ -n "$client" ]] || return "$status"
 }
 
 # tmux publishes the selection to capable terminals with OSC 52. Capture keeps
@@ -380,6 +421,7 @@ history_only=0
 clean=0
 width=''
 column=''
+seq=''
 while (($#)); do
   if [[ "$1" == --history-only ]]; then
     [[ "$command_name" == capture && "$history_only" == 0 ]] || exit 2
@@ -418,6 +460,10 @@ while (($#)); do
       [[ "$command_name" == clean || "$command_name" == copy ]] || exit 2
       [[ "$2" =~ ^[1-9][0-9]*$ ]] || exit 2
       width="$2"
+      ;;
+    --seq)
+      [[ "$command_name" == copy ]] || exit 2
+      seq="$2"
       ;;
     --column)
       [[ "$command_name" == clean || "$command_name" == copy ]] || exit 2
@@ -459,6 +505,7 @@ usage: clip {save|copy|clean|capture|paste|list|pick|clear}
   copy   copy stdin to clipboard + history
          --client NAME --pane PANE targets one initiating tmux client
          --clean --width N [--column N] copies the text as clip clean prints it
+         --seq S skips publishing once tmux's @clip_copy_seq has moved past S
   clean  print stdin with an agent TUI's layout removed
          --width N (required) rejoins the rows it wrapped at N columns and
          drops its margins, markers and gutter
