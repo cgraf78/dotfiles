@@ -187,8 +187,9 @@ starts no process; switching session always publishes. tmux-tools'
 opts into with `@term_pane_state_publish`. A nested tmux publishes to its
 parent pane at once, and an `after-set-option` hook on the parent publishes
 again when that lease's counts change, so a change crosses each nested layer
-in tens of milliseconds instead of up to a status interval. Termnav renews the
-lease every few seconds; a renewal with the same counts starts no process.
+in tens of milliseconds instead of up to a status interval. The nested
+layer's status job renews that lease every few seconds through Termnav; a
+renewal with the same counts starts no process.
 
 A pane is busy while its agent works on a request. AgentGuard's lifecycle hooks
 set the pane option `@term_busy` through tmux-tools' `term-pane-mark` when a

@@ -1211,8 +1211,14 @@ class LeafStyleTest(unittest.TestCase):
             time.sleep(0.5)
             self.assertEqual(before, len(runs()), description)
 
+        # Only the lease options count: a hook that fired on any option would
+        # see this pane's empty counts as new and publish.
+        stays_quiet(
+            "unrelated option before any lease",
+            lambda: self.tmux("set-option", "-p", "-t", self.inactive, "@unrelated", "0"),
+        )
         publishes("publish a new lease", lambda: lease(self.inactive, "1:1:0"))
-        # Termnav renews every few seconds; only the expiry moves.
+        # The nested status job renews every few seconds; only the expiry moves.
         stays_quiet("renewal", lambda: lease(self.inactive, "1:1:0", renewal=1))
         stays_quiet("second renewal", lambda: lease(self.inactive, "1:1:0", renewal=2))
         publishes("publish new work counts", lambda: lease(self.inactive, "2:1:0"))
@@ -1231,6 +1237,32 @@ class LeafStyleTest(unittest.TestCase):
         publishes(
             "publish a retired lease",
             lambda: self.tmux("if-shell", "-F", "-t", self.inactive, "1", retire),
+        )
+        # Counts that change while the session is detached are still recorded,
+        # so returning to the counts published before the detach publishes.
+        returning = self.tmux(
+            "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "focus:", "sleep 30"
+        ).stdout.strip()
+        self.assertTrue(returning.startswith("%"), returning)
+        publishes("publish an idle lease", lambda: lease(returning, "0:0:0"))
+        client.close()
+        wait_until(
+            lambda: not self.tmux("list-clients", "-t", "focus", "-F", "x").stdout.strip(),
+            "client detach",
+        )
+        stays_quiet("detached work", lambda: lease(returning, "1:0:0"))
+        stays_quiet("detached done", lambda: lease(returning, "0:1:0"))
+        client = Client(self)
+        self.clients.append(client)
+        # Attaching publishes through its own hooks; let those settle first.
+        # The fixture lacks the attach hook's helper, whose failure opens view
+        # mode, as at startup.
+        time.sleep(0.5)
+        for pane in modes():
+            self.tmux("send-keys", "-t", pane, "-X", "cancel")
+        publishes(
+            "publish the counts from before the detach",
+            lambda: lease(returning, "0:0:0", renewal=1),
         )
         # A detached session has no terminal to publish to.
         other = self.tmux(
