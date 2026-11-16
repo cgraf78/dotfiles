@@ -353,7 +353,17 @@ if command -v tmux >/dev/null 2>&1; then
     # A server started from a VS Code terminal holds VS Code's BROWSER helper.
     tmux_cmd set-environment -g BROWSER /vscode-server/bin/helpers/browser.sh
     tmux_cmd set-environment -g VSCODE_IPC_HOOK_CLI /run/vscode-ipc.sock
-    tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+    load_output=$(tmux_cmd source-file "$tmux_config" 2>&1) || true
+    # Every option the config sets is one this tmux knows, or is set with -q:
+    # tmux shows an unknown one as "invalid option" on every attach. The one
+    # known exception is hooks tmux lacks: tmux 3.2 has no client focus hooks.
+    if tmux_cmd show-hooks -g client-focus-in >/dev/null 2>&1; then
+      load_allowed='^$'
+    else
+      load_allowed='^invalid option: client-focus-(in|out)\[[0-9]+\]$'
+    fi
+    _assert_eq 'tmux: the config sets no option this tmux lacks' '' \
+      "$(printf '%s\n' "$load_output" | grep -F 'invalid option:' | grep -Ev "$load_allowed")"
     _assert_eq "tmux: runtime drops VS Code's BROWSER inherited from the starting terminal" \
       '' "$(tmux_cmd show-environment -g BROWSER 2>/dev/null)"
     tmux_cmd set-environment -g BROWSER /usr/bin/firefox
@@ -405,10 +415,15 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_contains 'tmux: control client receives a clean protocol exit' \
       '%exit' "$control_output"
     # The hook's if-shell is logged either way; only a run-shell line means
-    # the context was published.
-    _assert_eq 'tmux: control client does not publish terminal context' '' \
-      "$(printf '%s\n' "$control_messages" | grep -F 'command: run-shell' |
-        grep -F 'termnav tmux context')"
+    # the context was published. tmux before 3.6 logs no commands at all, so
+    # there the check could not fail and is skipped.
+    if printf '%s\n' "$control_messages" | grep -qF 'command: '; then
+      _assert_eq 'tmux: control client does not publish terminal context' '' \
+        "$(printf '%s\n' "$control_messages" | grep -F 'command: run-shell' |
+          grep -F 'termnav tmux context')"
+    else
+      printf 'SKIP: tmux: control client does not publish terminal context (no command log)\n'
+    fi
     _assert_eq 'tmux: runtime retains conditional pane labels' \
       '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{E:@pane_pending_marker}#{E:@pane_label} ' \
       "$pane_border_format"
