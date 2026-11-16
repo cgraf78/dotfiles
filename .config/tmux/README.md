@@ -361,11 +361,11 @@ does not page up. The check reads the pane's command and, when that does not
 match, the programs in the pane's foreground process group, as the palette
 does, but ignores mouse reporting. So a remote session under a wrapper such
 as `termnav ssh`, which tmux reports as the wrapper, still gets the inner
-prefix. tmux sees the chord only when the terminal
-sends it as an extended key distinct from `C-b`, so the shared terminal
-settings make WezTerm and iTerm2 send `ESC [ 98 ; 6 u`, and the dotfiles-dev
-overlay's VS Code keybindings send the same from a focused terminal in place
-of VS Code's Run Build Task. Left alone, WezTerm sends `ESC [ 27 ; 5 ; 66 ~`
+prefix. tmux sees the chord only when the terminal sends it as an extended
+key distinct from `C-b`, so the shared terminal settings make WezTerm and
+iTerm2 send `ESC [ 98 ; 6 u`, and the dotfiles-dev overlay's VS Code
+keybindings send the same from a focused terminal in place of VS Code's Run
+Build Task. Left alone, WezTerm sends `ESC [ 27 ; 5 ; 66 ~`
 while tmux has extended keys on, which tmux 3.4 reads as `C-b` and 3.6 onwards
 as a separate `C-B`, and plain `C-b` otherwise. macOS Terminal sends plain
 `C-b`, so there the chord is just this tmux's own prefix.
