@@ -684,12 +684,15 @@ fi
 # - `tmux-pane SUB ...` names a real subcommand and only its options;
 # - every other --option word is one some subcommand takes;
 # - a number after "after" or "exit"/"exits" is a listed exit status.
-tmux_pane_refs() { # tmux_pane_refs INTERFACE FILE...: print bad references
+# The interface goes in through the environment (BSD awk refuses a -v value
+# with a newline), and the scan ends with "#refs N", the references it read,
+# so a checker that silently reads nothing fails loudly.
+tmux_pane_scan() { # tmux_pane_scan INTERFACE FILE...: bad references, then "#refs N"
   local iface=$1
   shift
-  sed 's/`/ ` /g' "$@" | awk -v iface="$iface" '
+  sed 's/`/ ` /g' "$@" | TP_IFACE=$iface awk -v sq="'" '
     BEGIN {
-      n = split(iface, L, "\n")
+      n = split(ENVIRON["TP_IFACE"], L, "\n")
       for (i = 1; i <= n; i++) {
         m = split(L[i], f, " ")
         if (f[1] == "subcommands") for (j = 2; j <= m; j++) sub_ok[f[j]] = 1
@@ -712,13 +715,14 @@ tmux_pane_refs() { # tmux_pane_refs INTERFACE FILE...: print bad references
         ns = split(s, alt, "|"); known = 1
         for (a = 1; a <= ns; a++) if (!(alt[a] in sub_ok)) known = 0
         if (!known) { if (t[i + 2] == "-t") print "subcommand " s; continue }
+        refs++
         q = 0
         for (k = i + 2; k <= w; k++) {
           x = t[k]
           if (x == "`" || x == "#" || x == "|" || x == "--" || x ~ /^\$/) break
           seen[k] = 1
-          nq = gsub(/\x27/, "&", x)
-          if (q || (nq % 2 == 1 && x ~ /^\x27/)) { if (nq % 2 == 1) q = !q; continue }
+          nq = gsub(sq, "&", x)
+          if (q || (nq % 2 == 1 && substr(x, 1, 1) == sq)) { if (nq % 2 == 1) q = !q; continue }
           if (x !~ /^-/) continue
           gsub(/[][(),.;:"]/, "", x); sub(/=.*/, "", x)
           no = split(x, alt2, "|")
@@ -744,7 +748,13 @@ tmux_pane_refs() { # tmux_pane_refs INTERFACE FILE...: print bad references
     /^[ \t]*$/ { check(rec); rec = ""; next }
     /^[ \t]*([-*]|[0-9]+\.) / { check(rec); rec = "" }
     { rec = rec " " $0 }
-    END { check(rec) }'
+    END { check(rec); print "#refs " refs + 0 }'
+}
+tmux_pane_refs() { # tmux_pane_refs INTERFACE FILE...: bad references; fails loudly
+  local out
+  out=$(tmux_pane_scan "$@") || out='checker failed'
+  case $out in *'#refs '[0-9]*) ;; *) out="checker failed${out:+: $out}" ;; esac
+  printf '%s\n' "$out" | grep -v '^#refs '
 }
 if tmux_pane_iface=$(tmux-pane --interface 2>/dev/null) && [[ -n $tmux_pane_iface ]]; then
   tmux_pane_docs=()
@@ -765,6 +775,9 @@ if tmux_pane_iface=$(tmux-pane --interface 2>/dev/null) && [[ -n $tmux_pane_ifac
     "$(printf '%s\n' 'use `tmux-pane send -t %1 --enterr` or `tmux-pane send' \
       '-t %1 --wrapped`; keep `--bogus` low, `tmux-pane nope -t %1`; after 99' |
       tmux_pane_refs "$tmux_pane_iface" /dev/stdin | LC_ALL=C sort -u | tr '\n' ';')"
+  _assert_eq 'agent rules: the tmux-pane reference check reads known-good references' '#refs 2' \
+    "$(printf '%s\n' 'use `tmux-pane send -t %1 '"'"'a -b'"'"' --enter` and `tmux-pane wait' \
+      '-t %1 --prompt`' | tmux_pane_scan "$tmux_pane_iface" /dev/stdin)"
 elif [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 ]]; then
   _fail 'agent rules: tmux-pane --interface runs (tmux-tools is installed in CI)'
 else
