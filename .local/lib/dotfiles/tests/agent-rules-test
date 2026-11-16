@@ -672,4 +672,70 @@ EOF
   fi
 fi
 
+# Rules and playbooks that name tmux-tools' tmux-pane must name its real
+# subcommands and options: `tmux-pane --interface` is its own list, so a
+# renamed or removed option fails here instead of leaving agents a broken
+# recipe. CI installs tmux-tools (with-relay-deps sets
+# DOT_TEST_REQUIRE_TERMNAV=1), so the check cannot skip there.
+tmux_pane_refs() { # tmux_pane_refs INTERFACE FILE...: print bad references
+  local iface=$1
+  shift
+  sed 's/`/ ` /g' "$@" | awk -v iface="$iface" '
+    BEGIN {
+      n = split(iface, L, "\n")
+      for (i = 1; i <= n; i++) {
+        m = split(L[i], f, " ")
+        if (f[1] == "exit" || f[1] == "top") continue
+        sub_ok[f[1]] = 1
+        for (j = 2; j <= m; j++) opt[f[1], f[j]] = 1
+      }
+    }
+    {
+      w = split($0, t, " ")
+      for (i = 1; i < w; i++) {
+        if (t[i] != "tmux-pane") continue
+        s = t[i + 1]; gsub(/[][(),.;:]/, "", s)
+        if (s !~ /^[a-z]+(\|[a-z]+)*$/) continue
+        ns = split(s, alt, "|"); known = 1
+        for (a = 1; a <= ns; a++) if (!(alt[a] in sub_ok)) known = 0
+        if (!known) { if (t[i + 2] == "-t") print "subcommand " s; continue }
+        q = 0
+        for (k = i + 2; k <= w; k++) {
+          x = t[k]
+          if (x == "`" || x == "#" || x == "|" || x == "--" || x ~ /^\$/) break
+          nq = gsub(/\x27/, "&", x)
+          if (q || (nq % 2 == 1 && x ~ /^\x27/)) { if (nq % 2 == 1) q = !q; continue }
+          if (x !~ /^-/) continue
+          gsub(/[][(),.;:"]/, "", x); sub(/=.*/, "", x)
+          no = split(x, alt2, "|")
+          for (b = 1; b <= no; b++) {
+            if (alt2[b] == "" || alt2[b] ~ /^-[0-9]/) continue
+            ok = 0
+            for (a = 1; a <= ns; a++) if ((alt[a], alt2[b]) in opt) ok = 1
+            if (!ok) print s " " alt2[b]
+          }
+        }
+      }
+    }'
+}
+if tmux_pane_iface=$(tmux-pane --interface 2>/dev/null) && [[ -n $tmux_pane_iface ]]; then
+  tmux_pane_docs=()
+  while IFS= read -r tmux_pane_doc; do
+    tmux_pane_docs+=("$tmux_pane_doc")
+  done < <(grep -rlF 'tmux-pane' "$RULE_FAMILY" "$PLAYBOOK_FAMILY" \
+    "$source_home/.config/tmux/README.md" 2>/dev/null | LC_ALL=C sort)
+  if ((${#tmux_pane_docs[@]} == 0)); then
+    _fail 'agent rules: some rule or playbook names tmux-pane'
+  else
+    _assert_eq 'agent rules: tmux-pane references name real subcommands and options' '' \
+      "$(tmux_pane_refs "$tmux_pane_iface" "${tmux_pane_docs[@]}" | LC_ALL=C sort -u | tr '\n' ';')"
+  fi
+  _assert_eq 'agent rules: the tmux-pane reference check flags a bad option' 'send --enterr;' \
+    "$(printf '%s\n' 'use `tmux-pane send -t %1 --enterr`' | tmux_pane_refs "$tmux_pane_iface" /dev/stdin | tr '\n' ';')"
+elif [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 ]]; then
+  _fail 'agent rules: tmux-pane --interface runs (tmux-tools is installed in CI)'
+else
+  echo '  SKIP: agent rules: tmux-pane is not installed; its references are unchecked'
+fi
+
 _test_summary
