@@ -3064,7 +3064,19 @@ class LeafStyleTest(unittest.TestCase):
         # wrapper, so the palette finds the nested tmux in the pane's
         # foreground process group: with mouse reporting on it gets the key.
         wrapped_received = self.root / "wrapped-received"
-        self.recorder_pane("tmux", wrapped_received, mouse=True, wrapper="termnav")
+        wrapped = self.recorder_pane("tmux", wrapped_received, mouse=True, wrapper="termnav")
+        # ps must see the stand-in as tmux. Termux's termux-exec starts a
+        # program copied into app data through the Android linker, which ps
+        # then reports instead, though tmux shows the copy's name.
+        listed = subprocess.run(
+            ["ps", "-o", "ucomm=", "-t", self.show(wrapped, "#{pane_tty}")],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.split()
+        if "tmux" not in listed:
+            print(f"note: wrapped palette checks skipped (ps lists {listed})", file=sys.stderr)
+            return
         offered.unlink(missing_ok=True)
         client.send(b"\x1b ")
         wait_until(
