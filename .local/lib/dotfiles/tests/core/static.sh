@@ -66,6 +66,11 @@ dot_core_test_static() {
     'LIVE_TAG="$(_dot_release_latest_tag' "$live_test"
   _assert_contains "CI workflow: runs only the literal top-level inventory" \
     ".local/lib/dotfiles/tests/run-ci" "$workflow"
+  # The nested tmux relay skips without real Termnav and tmux-tools; the
+  # platform legs install both and turn that skip into a failure.
+  _assert_contains "CI workflow: platform legs require the nested relay providers" \
+    $'.local/lib/dotfiles/tests/with-relay-deps \\\n              .local/lib/dotfiles/tests/run-ci' \
+    "$workflow"
   # shellcheck disable=SC2016 # Match the literal GitHub Actions expression.
   _assert_contains "CI workflow: selects the event's exact PR head" \
     '${{ github.event.pull_request.head.sha || github.sha }}' "$workflow"

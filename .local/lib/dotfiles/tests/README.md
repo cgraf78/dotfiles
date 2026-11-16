@@ -50,7 +50,8 @@ as an explicit value wherever a single-shot resolution is acceptable:
 ```text
 .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
   .local/lib/dotfiles/tests/run-ci-candidate-home \
-    .local/lib/dotfiles/tests/run-ci
+    .local/lib/dotfiles/tests/with-relay-deps \
+      .local/lib/dotfiles/tests/run-ci
 .local/lib/dotfiles/tests/stack-dot-runtime profile-fixture-update -- \
   .local/lib/dotfiles/tests/run-ci-candidate-home \
     .local/lib/dotfiles/tests/profile-fixture-integration update
@@ -64,6 +65,15 @@ as an explicit value wherever a single-shot resolution is acceptable:
   .local/lib/dotfiles/tests/run-ci-candidate-home \
     .local/lib/dotfiles/tests/profile-fixture-integration footprint
 ```
+
+On the conventional platform legs, `with-relay-deps` first installs the
+base manifest's `cgraf78/termnav` and `cgraf78/tmux-tools` declarations
+through the candidate home's Shdeps, then exports
+`DOT_TEST_REQUIRE_TERMNAV=1`, so tmux-test's nested relay PTY case fails
+instead of skipping when either provider is missing. Termnav publishes release
+binaries for every platform leg. The Termux leg installs both through `dot
+update` but does not require the relay: Termnav ships no Android x86_64
+binary for the CI emulator.
 
 Emergency rollback: if a broken Dot release reds CI, temporarily set an
 explicit tag instead of resolving latest (`DOT_STACK_DOT_RELEASE_TAG` and

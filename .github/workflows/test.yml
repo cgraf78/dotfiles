@@ -40,9 +40,13 @@ jobs:
         # resolution failure and silently fall back to the git path below.
         dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
         export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
+        # with-relay-deps installs the base manifest's Termnav (released
+        # for every platform leg here) and tmux-tools, then requires
+        # tmux-test's nested relay PTY case to run instead of skipping.
         .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
           .local/lib/dotfiles/tests/run-ci-candidate-home \
-            .local/lib/dotfiles/tests/run-ci
+            .local/lib/dotfiles/tests/with-relay-deps \
+              .local/lib/dotfiles/tests/run-ci
         if [[ ${RUNNER_OS:-} == Linux ]]; then
           for mode in update doctor; do
             case "$mode" in
