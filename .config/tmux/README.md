@@ -17,6 +17,9 @@ other end.
 - Option-Space opens `tmux-tools`' `tmux-command-palette`, an fzf picker
   over every key binding that has a note; until `tmux-tools` provides it, the
   key says so.
+- `prefix W` opens `tmux-tools`' `tmux-agent-picker`, an fzf popup over every
+  agent pane on the server (see [Agent picker](#agent-picker)); until
+  `tmux-tools` provides it, the key says so.
 - `prefix o` and `prefix O` copy the last one or N command output blocks
   through `tmux-tools`' `tmux-copy-last-output`, and `prefix A` pastes the
   last block into the window's agent through its `--print` mode.
@@ -230,6 +233,35 @@ grouped session another client is looking at, both clients then share it.
 Session names match exactly, glob characters included; a name containing a
 comma is ambiguous in tmux's list of a window's sessions and may count twice.
 
+A jump within the client's own session selects the pane before its window,
+so the window's previous active pane never becomes current on the way, and a
+done mark on it stays.
+
+### Agent picker
+
+`prefix W` opens `tmux-tools`' `tmux-agent-picker`: an fzf popup listing every
+pane on this server that needs attention or runs an agent, one row each, most
+urgent first: red, yellow and green in `prefix a`'s order, then blue for work
+in progress, then idle agents, dimmed. Each row shows the pane's
+`session:window.pane`, its label as on the border and, for agents, its
+directory's base name; a failed command adds its exit status, `[COPY]` marks a
+pane in copy mode and `here` the pane you are on. The preview shows the bottom
+of the pane's screen in colour; ctrl-r refreshes the rows and the preview.
+Enter jumps there, switching sessions as `prefix a` does, and Escape closes
+the popup. Where `prefix a` steps through attention one pane at a time and the
+status bar names the other sessions that need it, the picker shows everything
+at once, idle agents included.
+
+The palette lists it as "Pick an agent pane across sessions", and the pane
+menu has "Pick an agent pane...". It covers this tmux only: a pane hosting a
+nested tmux is one row, coloured by the nested layer's attention, and
+`prefix W` over it still opens this layer's picker; `C-S-b W` opens the
+nested one's. The jump never makes another pane current on the way, so it
+acknowledges only the pane you pick. From tmux 3.6 a popup moves focus off the
+current pane, so opening the picker acknowledges that pane's done mark and
+exit status, even on Escape, as any popup does; waiting and blocked marks
+stay. It needs `tmux-agent-picker` and fzf; without the helper the key says so.
+
 The right of the status bar names each other session with a pane needing
 attention, followed by one dot in that session's most severe color, before
 the date:
@@ -311,9 +343,10 @@ Right-click menus replace tmux's defaults:
 - The pane menu (right-click a pane, or `prefix >`) copies the last command
   output or the last N, pastes from clipboard history, splits in the pane's
   directory, zooms, moves the pane to a new window, jumps to the next pane
-  needing attention, opens a task window, a scratch shell or the palette, and
-  closes the pane after asking. Under the pointer it also offers tmux's word,
-  line and link items; copies go to the clipboard and clipboard history. In
+  needing attention, opens the agent picker, a task window, a scratch shell
+  or the palette, and closes the pane after asking. Under the pointer it also
+  offers tmux's word, line and link items; copies go to the clipboard and
+  clipboard history. In
   copy mode, where a right-click still leaves copy mode, Option-right-click
   or `prefix >` adds tmux's scroll-to-top and bottom items. Right-clicking a
   pane selects it first.

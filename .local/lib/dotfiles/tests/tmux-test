@@ -34,6 +34,11 @@ _assert_contains "tmux: base fragment enables mouse mode" \
 # commands belong to the editor overlay.
 _assert_not_contains "tmux: base fragment does not invoke Neovim" \
   'termnav nvim' "$tmux_content"
+# prefix a in the client's own session makes the pane its window's active
+# pane before showing the window, so the window's old active pane is never
+# current and keeps its mark (the PTY suite presses it).
+_assert_contains "tmux: prefix a selects the pane before its window in its own session" \
+  '#{?#{E:@attention_next_here},select-pane -t ' "$tmux_content"
 _assert_contains "tmux: escape delay stays bounded" \
   'set -s escape-time 10' "$tmux_content"
 _assert_contains "tmux: history is retained generously" \
@@ -384,6 +389,7 @@ if command -v tmux >/dev/null 2>&1; then
       'Paste from the clipboard' \
       "Paste the last command output into this window's agent" \
       'Open the command palette' 'Open the pane menu' 'Open the window menu' \
+      'Pick an agent pane across sessions' \
       "Send the prefix to a nested or remote tmux, else start this one's"; do
       _assert_contains "tmux: help shows $description" "$description" "$help_keys"
     done
@@ -490,8 +496,9 @@ if command -v tmux >/dev/null 2>&1; then
       'Copy the last command output' 'Copy the last N command outputs...' \
       'Paste from clipboard history...' 'Split side by side' \
       'Split top and bottom' 'Move to a new window' \
-      'Jump to the next pane needing attention' 'New task window...' \
-      'Open a scratch shell' 'Open the command palette...' 'Close the pane...'; do
+      'Jump to the next pane needing attention' 'Pick an agent pane...' \
+      'New task window...' 'Open a scratch shell' 'Open the command palette...' \
+      'Close the pane...'; do
       _assert_contains "tmux: runtime pane menu offers $label" "$label" "$pane_menu"
     done
     for label in 'Move left' 'Move right' 'Rename...' 'Name automatically' \
@@ -571,6 +578,22 @@ if command -v tmux >/dev/null 2>&1; then
       '#{pane_in_mode}' "$palette_key"
     _assert_contains 'tmux: runtime Option-Space explains a missing helper' \
       'needs tmux-command-palette' "$palette_key"
+    # prefix W opens tmux-tools' agent picker on this layer only (no
+    # send-keys inward), for this server and client, and then reconciles the
+    # pressing client's focus, which the picker's own selects cannot name.
+    picker_key=$(key_line "$prefix_keys" W)
+    _assert_contains 'tmux: runtime prefix W opens the agent picker for this client' \
+      'tmux-agent-picker --socket #{q:socket_path} --client #{q:client_name}' "$picker_key"
+    _assert_contains 'tmux: runtime prefix W explains a missing helper' \
+      'needs tmux-agent-picker' "$picker_key"
+    _assert_contains 'tmux: runtime prefix W syncs the pressing client after the picker' \
+      "--client #{q:client_name}' ; run-shell -b 'test ! -x ~/.local/bin/termnav || exec ~/.local/bin/termnav tmux focus sync --tmux-socket #{q:socket_path} --client-pid #{client_pid}" \
+      "$picker_key"
+    _assert_not_contains 'tmux: runtime prefix W stays on this layer' 'send-keys' "$picker_key"
+    # TPM binds prefix I and U where it loads; the picker took neither.
+    for key in I U; do
+      _assert_eq "tmux: runtime leaves prefix $key to TPM" '' "$(key_line "$prefix_keys" "$key")"
+    done
     for key in '"' % c; do
       _assert_contains "tmux: runtime prefix $key keeps the pane directory" \
         '-c "#{pane_current_path}"' \
@@ -1055,7 +1078,13 @@ SH
     # crashed before its Stop hook) cannot mean work in progress.
     tmux_cmd set-option -p -t "$shell_pane" @term_busy 1
     _assert_eq 'tmux: a busy mark on a shell pane is ignored' '' "$(tab_marker)"
+    _assert_eq 'tmux: the agent picker does not count a busy shell as working' 0 \
+      "$(tmux_cmd display-message -p -t "$shell_pane" '#{?#{E:@pane_jump_working},1,0}')"
     tmux_cmd set-option -pu -t "$shell_pane" @term_busy
+    tmux_cmd set-option -p -t "$agent_pane" @term_busy 1
+    _assert_eq 'tmux: the agent picker counts a busy agent as working' 1 \
+      "$(tmux_cmd display-message -p -t "$agent_pane" '#{?#{E:@pane_jump_working},1,0}')"
+    tmux_cmd set-option -pu -t "$agent_pane" @term_busy
 
     # The containing window must also represent work and attention behind a
     # nested client, from exactly the leases term-pane-state counts. The
@@ -1127,6 +1156,9 @@ SH
     _assert_eq 'tmux: nested lease (live clock) marks its containing window' \
       "#[bg=#0b2942,nounderscore]$dot_yellow#[default]" \
       "$(child_marker "$((live_now + 15)):0:1:0" "$((live_now + 15)):1")"
+    child_marker "$((live_now + 15)):1:0:0" '' >/dev/null
+    _assert_eq 'tmux: the agent picker counts a working nested layer as working' 1 \
+      "$(tmux_cmd display-message -p -t "$agent_pane" '#{?#{E:@pane_jump_working},1,0}')"
     tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_attention
     tmux_cmd set-option -pu -t "$agent_pane" @termnav_child_waiting
 
@@ -1274,7 +1306,11 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_a_program_using_the_mouse_keeps_the_right_click \
     test_menu_items_grey_out_where_they_cannot_apply \
     test_the_window_menu_acts_on_the_tab_clicked \
-    test_option_space_opens_the_command_palette; do
+    test_option_space_opens_the_command_palette \
+    test_prefix_W_picks_an_agent_pane_across_sessions \
+    test_prefix_W_stays_on_this_layer_and_in_modes \
+    test_prefix_W_from_the_palette_and_the_pane_menu \
+    test_prefix_a_in_the_same_session_keeps_a_bystanders_mark; do
     # unittest prints each case's name, its docstring and then "... ok" or
     # "... skipped 'reason'"; a mention of the name alone proves nothing. A
     # case that writes to stderr while it runs puts that text after the
