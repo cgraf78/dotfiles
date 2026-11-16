@@ -404,8 +404,11 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_exit 'tmux: control client attaches and detaches cleanly' 0 "$control_status"
     _assert_contains 'tmux: control client receives a clean protocol exit' \
       '%exit' "$control_output"
-    _assert_not_contains 'tmux: control client does not publish terminal context' \
-      'termnav tmux context' "$control_messages"
+    # The hook's if-shell is logged either way; only a run-shell line means
+    # the context was published.
+    _assert_eq 'tmux: control client does not publish terminal context' '' \
+      "$(printf '%s\n' "$control_messages" | grep -F 'command: run-shell' |
+        grep -F 'termnav tmux context')"
     _assert_eq 'tmux: runtime retains conditional pane labels' \
       '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{E:@pane_pending_marker}#{E:@pane_label} ' \
       "$pane_border_format"
