@@ -522,6 +522,13 @@ For tmux selections, tmux is the single OSC 52 writer and `clip capture
 Explicit `clip copy` and ordinary `clip capture` retain native backend support.
 The frontend owns normal paste across SSH. Deliberate last-output copies carry
 the invoking client and pane and enter history through the same copy API.
+`clip copy --client` finds that client by exact name in `list-clients`:
+`display-message -p -c` answers for the most recently active client, which
+may belong to another session, and tmux 3.2 takes no argument to `-c`. If
+the history directory is unusable or a record fails, the copy still reaches
+the client and `clip` tells it. tmux 3.2 cannot aim a message at one client,
+so there that notice goes to the client tmux picks, which may be another
+session's.
 
 `prefix P` uses `clip pick --paste-pane` inside a real popup. Each invocation
 owns a distinct completed handoff and an explicit underlying pane; cancellation
