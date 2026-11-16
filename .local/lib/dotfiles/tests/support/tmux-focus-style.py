@@ -1376,10 +1376,16 @@ class LeafStyleTest(unittest.TestCase):
             outer_waiting = self.tmux(
                 "show-options", "-p", "-t", host, "-v", "@termnav_child_waiting", check=False
             ).stdout.strip()
+            # The hook records the counts it last published, so a seen value
+            # that matches the lease means the hook fired and the publish
+            # itself (term-pane-state to the terminal) is what failed.
+            outer_seen = self.tmux(
+                "show-options", "-p", "-t", host, "-v", "@child_lease_seen", check=False
+            ).stdout.strip()
             self.fail(
                 f"terminal never saw {field}={value} (inner mark {inner_mark!r}, "
-                f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}): "
-                f"{bytes(output)!r}"
+                f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}, "
+                f"hook published {outer_seen!r}): {bytes(output)!r}"
             )
 
         reaches(["set-option", *pane, "done"], "pending", 1)
