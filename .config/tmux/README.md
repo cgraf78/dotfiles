@@ -222,7 +222,9 @@ menu's item and the palette entry, which run the same key, jump there too.
 Arriving acknowledges a done or failed pane; waiting and blocked panes stay
 marked, so repeated presses cycle through them. With nothing else left it
 says nothing else is waiting. Pure formats find the target without starting a
-process.
+process. Their session loops never use tmux's `#{S:all,current}` form: tmux
+3.6b crashes expanding it while no client is attached (fixed upstream after
+3.6b), so `tests/tmux-test` rejects it anywhere in `conf.d`.
 
 A window shared by several sessions (grouped or linked) counts once. A jump
 within the client's own session, or to a window it shares with a grouped
@@ -373,7 +375,10 @@ cover those.
 
 Each menu's title and items are defined once, in `%hidden` config variables
 (tmux 3.2 or newer), and spliced into the mouse, Option-mouse and keyboard
-bindings, which differ only in position. Items reuse the key bindings' own
+bindings, which differ only in position. Over a word and a line the pane menu
+is at most 22 rows, so it still opens above the pointer near the bottom of an
+80x24 terminal; `tests/tmux-test` counts it, and the pane and attention items
+share one group to keep it that short. Items reuse the key bindings' own
 commands where they can. tmux leaves mouse bindings out of `prefix ?`.
 
 ## Key Handling
