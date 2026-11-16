@@ -1915,6 +1915,28 @@ class LeafStyleTest(unittest.TestCase):
             "the agent reads the typed line and nothing else",
         )
         self.assertNotIn("^B", self.tmux("capture-pane", "-p", "-t", agent).stdout)
+        # Under a wrapper such as termnav ssh the pane's command is the
+        # wrapper, so the chord finds the tmux client in the pane's foreground
+        # process group instead. The wrapper is a copy of bash named termnav,
+        # and the trailing no-op keeps it from exec-ing the client.
+        wrapper = self.program_command("termnav", attach + "; :")
+        wrapped = self.tmux("new-window", "-P", "-F", "#{pane_id}", wrapper).stdout.strip()
+        self.assertRegex(wrapped, r"^%[0-9]+$", "tmux returned no pane id")
+
+        def wrapped_ready() -> bool:
+            command = self.tmux("display-message", "-p", "-t", wrapped, "#{pane_current_command}")
+            clients = inner("list-clients").stdout.splitlines()
+            return command.stdout.strip() == "termnav" and len(clients) == 2
+
+        wait_until(wrapped_ready, "the wrapper runs the nested client")
+        wait_until(
+            lambda: self.client_view(client) == ("focus", wrapped), "the wrapped pane is current"
+        )
+        client.send(b"\x1b[98;6u")
+        client.pump(0.1)
+        client.send(b"c")
+        wait_until(lambda: inner_windows() == "4", "the wrapped nested tmux opens a window")
+        self.assertEqual("0", self.client_format(client, "#{client_prefix}"))
         self.tmux("select-window", "-t", nested)
         wait_until(lambda: self.client_view(client) == ("focus", nested), "back on the nested pane")
         # Unbound, the chord would pass through as itself: the nested tmux
@@ -1927,7 +1949,7 @@ class LeafStyleTest(unittest.TestCase):
             lambda: "zq" in inner("capture-pane", "-p", "-t", "inner:").stdout,
             "the text reaches the nested pane",
         )
-        self.assertEqual("3", inner_windows())
+        self.assertEqual("4", inner_windows())
 
     def test_prefix_j_and_J_move_panes_between_windows(self) -> None:
         client = Client(self)

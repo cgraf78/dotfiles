@@ -357,10 +357,11 @@ command (Ctrl-Shift-B then `c` opens a window there). Over anything else, such
 as a shell or an agent, or while the pane is in a mode such as copy mode, it
 turns on this tmux's own prefix, so an agent never receives a stray `C-b`
 (Claude Code reads it as moving the task to the background) and copy mode
-does not page up. The check reads the pane's command, as the palette does, but
-ignores mouse reporting. A remote session started through a wrapper that
-tmux reports under another name (a sandbox, an interpreter) gets this tmux's
-prefix rather than the inner one. tmux sees the chord only when the terminal
+does not page up. The check reads the pane's command and, when that does not
+match, the programs in the pane's foreground process group, as the palette
+does, but ignores mouse reporting. So a remote session under a wrapper such
+as `termnav ssh`, which tmux reports as the wrapper, still gets the inner
+prefix. tmux sees the chord only when the terminal
 sends it as an extended key distinct from `C-b`, so the shared terminal
 settings make WezTerm and iTerm2 send `ESC [ 98 ; 6 u`, and the dotfiles-dev
 overlay's VS Code keybindings send the same from a focused terminal in place
