@@ -1388,19 +1388,22 @@ class LeafStyleTest(unittest.TestCase):
             outer_session = self.tmux(
                 "display-message", "-p", "-t", host, "#{session_id}", check=False
             ).stdout.strip()
-            publish = subprocess.run(
-                [publisher, "--socket", str(self.socket), "--session", outer_session],
-                env=self.environment,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
+            try:
+                publish = subprocess.run(
+                    [publisher, "--socket", str(self.socket), "--session", outer_session],
+                    env=self.environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                rerun = f"exited {publish.returncode}, stderr {publish.stderr.strip()!r}"
+            except subprocess.TimeoutExpired:
+                rerun = "timed out after 10 s"
             self.fail(
                 f"terminal never saw {field}={value} (inner mark {inner_mark!r}, "
                 f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}, "
-                f"hook published {outer_seen!r}; publisher rerun exited "
-                f"{publish.returncode}, stderr {publish.stderr.strip()!r}): {bytes(output)!r}"
+                f"hook published {outer_seen!r}; publisher rerun {rerun}): {bytes(output)!r}"
             )
 
         reaches(["set-option", *pane, "done"], "pending", 1)
