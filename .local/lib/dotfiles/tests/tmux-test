@@ -680,8 +680,12 @@ if command -v tmux >/dev/null 2>&1; then
     # a tool sets that these predicates read must be a candidate, or ride
     # with one: @term_notify_exit_status counts only beside
     # @term_notify_pending, and @termnav_child_waiting only beside a
-    # @termnav_child_attention lease. The walk follows E: references through
-    # this config's options; a name it does not define is a tool's mark.
+    # @termnav_child_attention lease. The walk starts from the level
+    # predicates on the picker's bits line that are not candidates
+    # themselves (the @pane_jump_* classes; @pane_agent is a candidate), so
+    # text-only options such as @pane_label may read what they like. It
+    # follows E: references through this config's options; a name it does
+    # not define is a tool's mark.
     if picker_helper=$(command -v tmux-agent-picker 2>/dev/null); then
       picker_options=$(grep -o '#{E:@[a-z_]*' "$picker_helper" | sed 's/^#{E://' | LC_ALL=C sort -u)
       [[ -n $picker_options ]] || _fail 'tmux: the agent picker reads config options'
@@ -695,8 +699,17 @@ if command -v tmux >/dev/null 2>&1; then
       picker_candidates=" $(sed -n "s/^candidate='\(.*\)'$/\1/p" "$picker_helper" |
         grep -o '@[a-z_]*' | tr '\n' ' ')"
       _assert_ne 'tmux: the agent picker names its candidate marks' ' ' "$picker_candidates"
+      picker_levels=''
+      while IFS= read -r option; do
+        case $picker_candidates in *" $option "*) ;; *) picker_levels+="$option " ;; esac
+      done < <(sed -n "s/^bits='\(.*\)'$/\1/p" "$picker_helper" |
+        grep -o '#{E:@[a-z_]*' | sed 's/^#{E://')
+      _assert_contains 'tmux: the agent picker walks its level predicates' \
+        '@pane_jump_failed ' "$picker_levels"
+      _assert_not_contains 'tmux: the agent picker walk skips candidates' \
+        '@pane_agent' "$picker_levels"
       # shellcheck disable=SC2016 # An awk program, not shell expansions.
-      picker_marks=$(awk -v tops="$(tr '\n' ' ' <<<"$picker_options")" -v q="'" '
+      picker_marks=$(awk -v tops="$picker_levels" -v q="'" '
         function walk(name,    v, m) {
           if (name in seen) return
           seen[name] = 1
