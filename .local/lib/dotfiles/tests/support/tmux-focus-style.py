@@ -1342,6 +1342,8 @@ class LeafStyleTest(unittest.TestCase):
         self.assertTrue(marked.startswith("%"), marked)
         frame = re.compile(rb"\x1b\]1337;SetUserVar=TERM_PANE_STATE=([A-Za-z0-9+/=]+)\x07")
 
+        pane = ["-p", "-t", marked, "@term_notify_pending"]
+
         def reaches(change: list[str], field: str, value: int) -> None:
             terminal.drain()
             # term-pane-mark's command list with @term_pane_state_publish on.
@@ -1357,15 +1359,29 @@ class LeafStyleTest(unittest.TestCase):
                 " --session #{q:session_id} >/dev/null 2>&1 || true'",
             )
             output = bytearray()
-            deadline = time.monotonic() + 2.0
+            # With no status job, any arrival proves the hook path, so the
+            # deadline only bounds a slow host: the frame crosses two tmux
+            # servers and a relay, and a loaded macOS runner took over 2 s.
+            deadline = time.monotonic() + 10.0
             while time.monotonic() < deadline:
                 output.extend(terminal.pump(0.05))
                 for match in frame.finditer(output):
                     if json.loads(base64.b64decode(match[1])).get(field) == value:
                         return
-            self.fail(f"terminal never saw {field}={value}: {bytes(output)!r}")
+            # Say where the chain stopped: the inner mark, or the outer lease.
+            inner_mark = inner_tmux("show-options", "-v", *pane).stdout.strip()
+            outer_lease = self.tmux(
+                "show-options", "-p", "-t", host, "-v", "@termnav_child_attention", check=False
+            ).stdout.strip()
+            outer_waiting = self.tmux(
+                "show-options", "-p", "-t", host, "-v", "@termnav_child_waiting", check=False
+            ).stdout.strip()
+            self.fail(
+                f"terminal never saw {field}={value} (inner mark {inner_mark!r}, "
+                f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}): "
+                f"{bytes(output)!r}"
+            )
 
-        pane = ["-p", "-t", marked, "@term_notify_pending"]
         reaches(["set-option", *pane, "done"], "pending", 1)
         reaches(["set-option", *pane, "waiting"], "waiting", 1)
         reaches(["set-option", "-u", *pane], "pending", 0)
