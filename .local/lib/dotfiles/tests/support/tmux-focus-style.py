@@ -1915,6 +1915,28 @@ class LeafStyleTest(unittest.TestCase):
             "the agent reads the typed line and nothing else",
         )
         self.assertNotIn("^B", self.tmux("capture-pane", "-p", "-t", agent).stdout)
+        # Under a wrapper such as termnav ssh the pane's command is the
+        # wrapper, so the chord finds the tmux client in the pane's foreground
+        # process group instead. The wrapper is a copy of bash named termnav,
+        # and the trailing no-op keeps it from exec-ing the client.
+        wrapper = self.program_command("termnav", attach + "; :")
+        wrapped = self.tmux("new-window", "-P", "-F", "#{pane_id}", wrapper).stdout.strip()
+        self.assertRegex(wrapped, r"^%[0-9]+$", "tmux returned no pane id")
+
+        def wrapped_ready() -> bool:
+            command = self.tmux("display-message", "-p", "-t", wrapped, "#{pane_current_command}")
+            clients = inner("list-clients").stdout.splitlines()
+            return command.stdout.strip() == "termnav" and len(clients) == 2
+
+        wait_until(wrapped_ready, "the wrapper runs the nested client")
+        wait_until(
+            lambda: self.client_view(client) == ("focus", wrapped), "the wrapped pane is current"
+        )
+        client.send(b"\x1b[98;6u")
+        client.pump(0.1)
+        client.send(b"c")
+        wait_until(lambda: inner_windows() == "4", "the wrapped nested tmux opens a window")
+        self.assertEqual("0", self.client_format(client, "#{client_prefix}"))
         self.tmux("select-window", "-t", nested)
         wait_until(lambda: self.client_view(client) == ("focus", nested), "back on the nested pane")
         # Unbound, the chord would pass through as itself: the nested tmux
@@ -1927,7 +1949,7 @@ class LeafStyleTest(unittest.TestCase):
             lambda: "zq" in inner("capture-pane", "-p", "-t", "inner:").stdout,
             "the text reaches the nested pane",
         )
-        self.assertEqual("3", inner_windows())
+        self.assertEqual("4", inner_windows())
 
     def test_prefix_j_and_J_move_panes_between_windows(self) -> None:
         client = Client(self)
@@ -2624,12 +2646,15 @@ class LeafStyleTest(unittest.TestCase):
         left, top = (int(n) for n in self.show(pane, "#{pane_left} #{pane_top}").split())
         self.right_click(client, left + 3, top + row + 2, meta=meta, opens=opens)
 
-    def recorder_pane(self, name: str, received: pathlib.Path, *, mouse: bool) -> str:
+    def recorder_pane(
+        self, name: str, received: pathlib.Path, *, mouse: bool, wrapper: str = ""
+    ) -> str:
         """Start a window whose program records every byte it receives.
 
         The program is a bash copy named NAME, so pane_current_command reports
         it; with mouse it turns on mouse reporting first, as Neovim or a nested
-        tmux does.
+        tmux does. With WRAPPER it runs under a bash copy of that name, which
+        pane_current_command reports instead, as for termnav ssh.
         """
         tools = self.root / "programs"
         tools.mkdir(exist_ok=True)
@@ -2642,20 +2667,19 @@ class LeafStyleTest(unittest.TestCase):
             + "stty raw -echo\n"
             + "while IFS= read -r -d '' -n 1 byte; do printf '%s' \"$byte\" >>\"$1\"; done\n"
         )
-        pane = self.tmux(
-            "new-window",
-            "-P",
-            "-F",
-            "#{pane_id}",
-            shlex.join([str(program), str(script), str(received)]),
-        ).stdout.strip()
+        command = shlex.join([str(program), str(script), str(received)])
+        if wrapper:
+            # The trailing no-op keeps the wrapper from exec-ing the recorder.
+            command = self.program_command(wrapper, command + "; :")
+        pane = self.tmux("new-window", "-P", "-F", "#{pane_id}", command).stdout.strip()
         self.assertRegex(pane, r"^%[0-9]+$", "tmux returned no pane id")
+        shown = wrapper or name
         wait_until(
             lambda: (
                 self.show(pane, "#{pane_current_command} #{mouse_any_flag}")
-                == f"{name} {1 if mouse else 0}"
+                == f"{shown} {1 if mouse else 0}"
             ),
-            f"{name} runs with mouse reporting {'on' if mouse else 'off'}",
+            f"{shown} runs with mouse reporting {'on' if mouse else 'off'}",
         )
         return pane
 
@@ -3036,6 +3060,39 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("copy-mode", "-t", nested)
         palette("")
         self.assertEqual(b"\x1b ", received.read_bytes()[-2:])
+        # Under a wrapper such as termnav ssh the pane's command is the
+        # wrapper, so the palette finds the nested tmux in the pane's
+        # foreground process group: with mouse reporting on it gets the key.
+        wrapped_received = self.root / "wrapped-received"
+        wrapped = self.recorder_pane("tmux", wrapped_received, mouse=True, wrapper="termnav")
+        # ps must see the stand-in as tmux. Termux's termux-exec starts a
+        # program copied into app data through the Android linker, which ps
+        # then reports instead, though tmux shows the copy's name.
+        listed = subprocess.run(
+            ["ps", "-o", "ucomm=", "-t", self.show(wrapped, "#{pane_tty}")],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.split()
+        if "tmux" not in listed:
+            print(f"note: wrapped palette checks skipped (ps lists {listed})", file=sys.stderr)
+            return
+        offered.unlink(missing_ok=True)
+        client.send(b"\x1b ")
+        wait_until(
+            lambda: wrapped_received.exists() and wrapped_received.read_bytes().endswith(b"\x1b "),
+            "Option-Space goes to the wrapped nested tmux",
+        )
+        self.assertFalse(offered.exists(), "this layer opens no palette over the wrapper")
+        # Without mouse reporting the wrapped program keeps no palette of its
+        # own in reach, so this layer opens its palette.
+        quiet_received = self.root / "quiet-received"
+        self.recorder_pane("tmux", quiet_received, mouse=False, wrapper="termnav")
+        palette("")
+        self.assertFalse(
+            quiet_received.exists() and b"\x1b " in quiet_received.read_bytes(),
+            "the wrapped program without mouse reporting gets no Option-Space",
+        )
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences

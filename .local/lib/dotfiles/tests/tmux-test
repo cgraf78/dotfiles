@@ -650,6 +650,10 @@ if command -v tmux >/dev/null 2>&1; then
       "$ctrl_shift_b"
     _assert_contains 'tmux: runtime Ctrl-Shift-B starts the prefix elsewhere' \
       'switch-client -T prefix' "$ctrl_shift_b"
+    # Under a wrapper such as termnav ssh it looks for the remote session in
+    # the pane's foreground process group.
+    _assert_contains 'tmux: runtime Ctrl-Shift-B checks the foreground process group' \
+      'tpgid=' "$ctrl_shift_b"
     # Every session counts, so a pane elsewhere switches the client there.
     _assert_contains 'tmux: runtime prefix a walks every session' \
       '#{S:#{W:' "$(tmux_cmd show-options -gv @attention_panes)"
