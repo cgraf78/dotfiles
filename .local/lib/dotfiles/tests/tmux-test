@@ -1253,7 +1253,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
   printf '%s\n' "$pty_output"
   _assert_exit "tmux: base PTY focus/style coverage passes" 0 "$pty_status"
   for pty_case in \
-    test_attaching_without_termnav_reports_nothing \
+    test_attaching_shows_no_error \
     test_focus_hooks_are_client_scoped_and_ignore_control_mode \
     test_styles_follow_each_client_and_child_claim \
     test_terminal_render_paints_the_focused_leaf_night_owl_blue \

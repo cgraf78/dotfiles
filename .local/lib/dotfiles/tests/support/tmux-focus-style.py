@@ -1407,19 +1407,32 @@ class LeafStyleTest(unittest.TestCase):
         reaches(["set-option", *pane, "waiting"], "waiting", 1)
         reaches(["set-option", "-u", *pane], "pending", 0)
 
-    def test_attaching_without_termnav_reports_nothing(self) -> None:
-        """A client attach on a host without Termnav shows no failed command."""
+    def test_attaching_shows_no_error(self) -> None:
+        """A client attach shows no failed command and no config error.
+
+        tmux shows either in view mode over the pane as a client attaches: the
+        attach hook's Termnav call failed with "returned 127" on hosts without
+        Termnav, and tmux before 3.6 rejected the pane-scrollbars option.
+        """
+        # tmux 3.2 lacks the client focus hooks this config sets and lists
+        # those errors in that view, over anything else it would show.
+        if not self.supports_hook("client-focus-in"):
+            self.skipTest("tmux does not expose client focus hooks")
         home = pathlib.Path(self.environment.get("HOME", "/nonexistent"))
         if (home / ".local/bin/termnav").exists():
             self.skipTest("this HOME has ~/.local/bin/termnav")
         client = Client(self)
         self.clients.append(client)
-        # A failed blocking run-shell from the attach hook puts the pane in
-        # view mode with "'...' returned 127".
-        client.pump(0.5)
-        pane = self.current_pane(client)
-        self.assertEqual("", self.show(pane, "#{pane_mode}"))
-        self.assertNotIn("returned", self.tmux("capture-pane", "-p", "-t", pane).stdout)
+        self.tmux("refresh-client", "-t", client.tty)
+        shown = re.sub(
+            r"\x1b(\[[0-9;?]*[A-Za-z]|[()][A-Z0-9]|[=>])",
+            " ",
+            client.pump(0.5).decode(errors="replace"),
+        )
+        shown = " ".join(shown.split())
+        self.assertNotIn("returned", shown)
+        pane = self.client_pane(client)
+        self.assertEqual("", self.show(pane, "#{pane_mode}"), shown[-600:])
 
     def current_pane(self, client: Client) -> str:
         return self.tmux("display-message", "-c", client.tty, "-p", "#{pane_id}").stdout.strip()
