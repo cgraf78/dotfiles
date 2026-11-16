@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# with-relay-deps - install the nested-relay providers, then run a command.
+#
+# The nested tmux relay PTY test needs the real Termnav and tmux-tools'
+# term-pane-state, which CI images do not carry. Install exactly the base
+# manifest's declarations for both through the candidate home's Shdeps, as a
+# real host would, then run the command with DOT_TEST_REQUIRE_TERMNAV=1 so the
+# relay test fails instead of skipping if either one is ever missing.
+#
+# Run inside run-ci-candidate-home: it owns the disposable Shdeps runtime and
+# the SHDEPS_INSTALL_DIR/SHDEPS_BIN_DIR that lead its PATH.
+
+set -euo pipefail
+
+fail() {
+  printf 'with-relay-deps: %s\n' "$1" >&2
+  exit 1
+}
+
+[[ $# -gt 0 ]] || {
+  printf 'usage: %s COMMAND [ARG...]\n' "${0##*/}" >&2
+  exit 2
+}
+[[ -n ${SHDEPS_INSTALL_DIR:-} && -n ${SHDEPS_BIN_DIR:-} &&
+  -d $SHDEPS_BIN_DIR ]] || fail 'run this inside run-ci-candidate-home'
+case :$PATH: in
+  *":$SHDEPS_BIN_DIR:"*) ;;
+  *) fail 'the Shdeps bin directory is not on PATH' ;;
+esac
+shdeps_bin=$(command -v shdeps) || fail 'Shdeps is unavailable'
+
+root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+manifest=$root/.config/shdeps/10-deps.conf
+conf=$(mktemp -d "${TMPDIR:-/tmp}/with-relay-deps.XXXXXXXX")
+trap 'rm -rf -- "$conf"' EXIT
+
+# Copy the declarations verbatim, so CI installs what the fleet installs.
+awk '$1 == "cgraf78/termnav" || $1 == "cgraf78/tmux-tools"' "$manifest" \
+  >"$conf/10-relay.conf"
+[[ $(wc -l <"$conf/10-relay.conf") -eq 2 ]] ||
+  fail "expected the Termnav and tmux-tools declarations in $manifest"
+"$shdeps_bin" -c "$conf" update || fail 'Shdeps could not install the providers'
+
+for command_name in termnav term-pane-state; do
+  resolved=$(command -v "$command_name") ||
+    fail "$command_name is not on PATH after the install"
+  [[ $resolved == "$SHDEPS_BIN_DIR/$command_name" ]] ||
+    fail "$command_name resolved outside the install: $resolved"
+done
+termnav --version >/dev/null || fail 'the installed Termnav does not run'
+printf 'relay-deps\ttermnav=%s\n' "$(termnav --version)"
+
+rm -rf -- "$conf"
+trap - EXIT
+export DOT_TEST_REQUIRE_TERMNAV=1
+exec "$@"
