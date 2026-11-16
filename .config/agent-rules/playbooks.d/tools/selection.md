@@ -153,6 +153,8 @@ interfaces.
   manipulating owned session state directly.
 - `termnav`: Shdeps-managed focus-aware terminal and nested-tmux integration;
   public entry points include `termnav navigate` and `termnav nvim open`.
+- `tmux-pane`: send text or keys to an exact `%N` pane, read its output, or
+  wait for an agent turn or shell prompt; prefer it over raw `send-keys`.
 - `ettun` and `fwdports`: remote transport and forwarding workflows. Inspect
   their help and current state before changing connectivity.
 - `agentguard`: Shdeps-managed agent-hook safety and lifecycle integration;

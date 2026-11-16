@@ -13,6 +13,8 @@ state. Core runtime isolation flags may not cover plugin-owned persistence.
   persistence hooks explicitly when the test does not need them.
 - Do not assume one application's clean-start flag isolates extensions or
   plugins. Inspect the loaded configuration and persistence owners.
+- tmux tests use a private `tmux -L` or `-S` server with `-f /dev/null`, and
+  abort on an empty pane id; never the user's server.
 - Exercise startup, normal exit, failure, and forced termination where each can
   publish state.
 - Assert that expected isolated state is empty or contains only declared
