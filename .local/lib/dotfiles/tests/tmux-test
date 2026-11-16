@@ -100,6 +100,8 @@ _assert_contains 'tmux: control clients are excluded from context publication' \
   '#{==:#{client_control_mode},0}' "$tmux_content"
 _assert_not_contains 'tmux: context publication remains ordered' \
   "client-attached[100] 'run-shell -b" "$tmux_content"
+_assert_contains 'tmux: context publication is skipped without Termnav' \
+  "run-shell 'test ! -x ~/.local/bin/termnav || exec ~/.local/bin/termnav tmux context" "$tmux_content"
 _assert_contains 'tmux: focus-in starts the focus watcher' \
   'termnav tmux focus watch' "$tmux_content"
 # Notification hooks can expand #{client_*} for another client; only
@@ -403,7 +405,7 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_contains 'tmux: control client receives a clean protocol exit' \
       '%exit' "$control_output"
     _assert_not_contains 'tmux: control client does not publish terminal context' \
-      'command: run-shell "\~/.local/bin/termnav tmux context' "$control_messages"
+      'termnav tmux context' "$control_messages"
     _assert_eq 'tmux: runtime retains conditional pane labels' \
       '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{E:@pane_pending_marker}#{E:@pane_label} ' \
       "$pane_border_format"
@@ -1248,6 +1250,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
   printf '%s\n' "$pty_output"
   _assert_exit "tmux: base PTY focus/style coverage passes" 0 "$pty_status"
   for pty_case in \
+    test_attaching_without_termnav_reports_nothing \
     test_focus_hooks_are_client_scoped_and_ignore_control_mode \
     test_styles_follow_each_client_and_child_claim \
     test_terminal_render_paints_the_focused_leaf_night_owl_blue \

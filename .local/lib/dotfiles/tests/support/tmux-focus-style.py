@@ -1382,15 +1382,44 @@ class LeafStyleTest(unittest.TestCase):
             outer_seen = self.tmux(
                 "show-options", "-p", "-t", host, "-v", "@child_lease_seen", check=False
             ).stdout.strip()
+            # The hook's run-shell discards the publisher's output, so run
+            # the same command for the outer session once more and keep what
+            # it says. Diagnostics only: the test has already failed.
+            outer_session = self.tmux(
+                "display-message", "-p", "-t", host, "#{session_id}", check=False
+            ).stdout.strip()
+            publish = subprocess.run(
+                [publisher, "--socket", str(self.socket), "--session", outer_session],
+                env=self.environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
             self.fail(
                 f"terminal never saw {field}={value} (inner mark {inner_mark!r}, "
                 f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}, "
-                f"hook published {outer_seen!r}): {bytes(output)!r}"
+                f"hook published {outer_seen!r}; publisher rerun exited "
+                f"{publish.returncode}, stderr {publish.stderr.strip()!r}): {bytes(output)!r}"
             )
 
         reaches(["set-option", *pane, "done"], "pending", 1)
         reaches(["set-option", *pane, "waiting"], "waiting", 1)
         reaches(["set-option", "-u", *pane], "pending", 0)
+
+    def test_attaching_without_termnav_reports_nothing(self) -> None:
+        """A client attach on a host without Termnav shows no failed command."""
+        home = pathlib.Path(self.environment.get("HOME", "/nonexistent"))
+        if (home / ".local/bin/termnav").exists():
+            self.skipTest("this HOME has ~/.local/bin/termnav")
+        client = Client(self)
+        self.clients.append(client)
+        # A failed blocking run-shell from the attach hook puts the pane in
+        # view mode with "'...' returned 127".
+        client.pump(0.5)
+        pane = self.current_pane(client)
+        self.assertEqual("", self.show(pane, "#{pane_mode}"))
+        self.assertNotIn("returned", self.tmux("capture-pane", "-p", "-t", pane).stdout)
 
     def current_pane(self, client: Client) -> str:
         return self.tmux("display-message", "-c", client.tty, "-p", "#{pane_id}").stdout.strip()
