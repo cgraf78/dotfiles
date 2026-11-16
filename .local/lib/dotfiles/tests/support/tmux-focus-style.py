@@ -2639,8 +2639,14 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(drawn, description)
 
     def tmux_at_least(self, major: int, minor: int) -> bool:
-        match = re.search(r"(\d+)\.(\d+)", self.tmux("-V").stdout)
-        return match is not None and (int(match[1]), int(match[2])) >= (major, minor)
+        """Compare this tmux's version; a build from git ("tmux master") is newest."""
+        version = self.tmux("-V").stdout
+        match = re.search(r"(\d+)\.(\d+)", version)
+        if match is None:
+            if "master" in version:
+                return True
+            raise AssertionError(f"unrecognised tmux version {version!r}")
+        return (int(match[1]), int(match[2])) >= (major, minor)
 
     def right_click(
         self, client: Client, x: int, y: int, *, meta: bool = False, opens: bytes = b""
@@ -3146,6 +3152,9 @@ class LeafStyleTest(unittest.TestCase):
         in the returned file, waits while $PICKER_HOLD names a missing file,
         then prints the first row containing $PICKER_PICK, or exits 130
         (fzf's cancel) when that is empty. It touches FILE.done as it exits.
+        tmux-tools' palette, found on the same original PATH, is linked
+        beside the picker when installed, since dropping the picker's
+        directory drops the palette too.
         """
         base_path, without_helper = self.picker_paths()
         helper = shutil.which("tmux-agent-picker", path=base_path)
@@ -3154,6 +3163,9 @@ class LeafStyleTest(unittest.TestCase):
         stub = self.root / "picker-bin"
         stub.mkdir()
         (stub / "tmux-agent-picker").symlink_to(helper)
+        palette = shutil.which("tmux-command-palette", path=base_path)
+        if palette is not None:
+            (stub / "tmux-command-palette").symlink_to(palette)
         offered = self.root / "picker-offered"
         fzf = stub / "fzf"
         fzf.write_text(
@@ -3396,15 +3408,29 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(lambda: self.client_view(client) == ("work", target), "the jump to work")
         self.assertEqual("copy-mode", self.show(target, "#{pane_mode}"))
 
-    def test_prefix_W_from_the_palette_and_the_pane_menu(self) -> None:
-        """The palette lists the picker, and the pane menu's item opens it."""
+    def test_prefix_W_from_the_pane_menu(self) -> None:
+        """The pane menu's item opens the picker, with the socket path quoted."""
         client = Client(self)
         self.clients.append(client)
         offered = self.use_agent_picker()
-        if shutil.which("tmux-command-palette", path=self.picker_paths()[0]) is None:
-            self.skipTest("tmux-tools' tmux-command-palette is not installed")
         target = self.new_session("work", "codex")
         self.tmux("set-option", "-p", "-t", target, "@term_notify_pending", "waiting")
+
+        # The menu runs the picker through @agent_picker, so the socket path's
+        # space (this fixture's) reaches it quoted.
+        client.send(b"\x02>")
+        self.wait_drawn(client, b"Pick an agent pane", "the pane menu offers the picker")
+        rows = self.open_agent_picker(client, offered, target, keys=b"W")
+        self.assertIn(target, [row[0] for row in rows])
+        wait_until(lambda: self.client_view(client) == ("work", target), "the menu's jump")
+
+    def test_prefix_W_is_listed_in_the_palette(self) -> None:
+        """The palette lists the picker under its note."""
+        client = Client(self)
+        self.clients.append(client)
+        offered = self.use_agent_picker()
+        if not (self.root / "picker-bin" / "tmux-command-palette").exists():
+            self.skipTest("tmux-tools' tmux-command-palette is not installed")
 
         # The palette's stand-in is the same fzf: it cancels with no pick.
         offered.unlink(missing_ok=True)
@@ -3417,14 +3443,6 @@ class LeafStyleTest(unittest.TestCase):
             offered.read_text(),
             r"(?m)^Pick an agent pane across sessions +prefix W\tprefix\tW$",
         )
-
-        # The menu runs the picker through @agent_picker, so the socket path's
-        # space (this fixture's) reaches it quoted.
-        client.send(b"\x02>")
-        self.wait_drawn(client, b"Pick an agent pane", "the pane menu offers the picker")
-        rows = self.open_agent_picker(client, offered, target, keys=b"W")
-        self.assertIn(target, [row[0] for row in rows])
-        wait_until(lambda: self.client_view(client) == ("work", target), "the menu's jump")
 
     def test_prefix_a_in_the_same_session_keeps_a_bystanders_mark(self) -> None:
         """prefix a selects the pane before its window in the client's session.

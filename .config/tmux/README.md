@@ -242,27 +242,27 @@ done mark on it stays.
 ### Agent picker
 
 `prefix W` opens `tmux-tools`' `tmux-agent-picker`: an fzf popup listing every
-pane on this server that needs attention or runs an agent, one row each, most
-urgent first: red, yellow and green in `prefix a`'s order, then blue for work
-in progress, then idle agents, dimmed. Each row shows the pane's
-`session:window.pane`, its label as on the border and, for agents, its
-directory's base name; a failed command adds its exit status, `[COPY]` marks a
-pane in copy mode and `here` the pane you are on. The preview shows the bottom
-of the pane's screen in colour; ctrl-r refreshes the rows and the preview.
-Enter jumps there, switching sessions as `prefix a` does, and Escape closes
-the popup. Where `prefix a` steps through attention one pane at a time and the
-status bar names the other sessions that need it, the picker shows everything
-at once, idle agents included.
+pane on this server that needs attention or runs an agent, most urgent first,
+with a preview, and Enter jumps to the one you pick in any session; `man
+tmux-agent-picker` describes the rows, the preview and the jump. This config
+supplies the options it reads: its red, yellow and green rows are `prefix a`'s
+list in `prefix a`'s order, blue is `@pane_jump_working` (a busy pane away
+from its shell prompt, or a working nested layer), and idle agents are the
+programs `@agent_names` lists.
+Where `prefix a` steps through attention one pane at a time and the status bar
+names the other sessions that need it, the picker shows everything at once,
+idle agents included.
 
 The palette lists it as "Pick an agent pane across sessions", and the pane
 menu has "Pick an agent pane...". It covers this tmux only: a pane hosting a
 nested tmux is one row, coloured by the nested layer's attention, and
 `prefix W` over it still opens this layer's picker; `C-S-b W` opens the
-nested one's. The jump never makes another pane current on the way, so it
-acknowledges only the pane you pick. From tmux 3.6 a popup moves focus off the
-current pane, so opening the picker acknowledges that pane's done mark and
-exit status, even on Escape, as any popup does; waiting and blocked marks
-stay. It needs `tmux-agent-picker` and fzf; without the helper the key says so.
+nested one's. With this config's acknowledgement hooks, the jump acknowledges
+only the pane you pick. From tmux 3.6 a popup moves focus off the current
+pane, so opening the picker acknowledges that pane's done mark and exit
+status, even on Escape, as any popup does; waiting and blocked marks stay. It
+needs `tmux-agent-picker` and fzf; without the helper the key says so, and a
+picker that reads an option this config lacks names it.
 
 The right of the status bar names each other session with a pane needing
 attention, followed by one dot in that session's most severe color, before
@@ -376,9 +376,11 @@ cover those.
 Each menu's title and items are defined once, in `%hidden` config variables
 (tmux 3.2 or newer), and spliced into the mouse, Option-mouse and keyboard
 bindings, which differ only in position. Over a word and a line the pane menu
-is at most 22 rows, so it still opens above the pointer near the bottom of an
-80x24 terminal; `tests/tmux-test` counts it, and the pane and attention items
-share one group to keep it that short. Items reuse the key bindings' own
+is 22 rows, one spare within the 23 above an 80x24 terminal's status line, so
+it still opens above the pointer near the bottom of the terminal; tmux 3.2,
+which does not collapse adjacent separators, draws 23. `tests/tmux-test`
+counts both, and the pane and attention items share one group to keep it that
+short. Items reuse the key bindings' own
 commands where they can. tmux leaves mouse bindings out of `prefix ?`.
 
 ## Key Handling

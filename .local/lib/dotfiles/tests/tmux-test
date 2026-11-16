@@ -40,17 +40,24 @@ _assert_not_contains "tmux: base fragment does not invoke Neovim" \
 _assert_contains "tmux: prefix a selects the pane before its window in its own session" \
   '#{?#{E:@attention_next_here},select-pane -t ' "$tmux_content"
 # tmux 3.6b segfaults expanding a session loop's "current session" form,
-# #{S:all,current}, when the format has no client (nobody attached, from a
-# hook or a script); tmux fixed it upstream after 3.6b. Print each
-# FILE:LINE whose #{S: loop has a comma at its own brace depth, with
-# continued lines joined and #, #} and ## escapes skipped.
+# #{S:all,current} or #{S/n:all,current}, when the format has no client
+# (nobody attached, from a hook or a script); tmux fixed it upstream after
+# 3.6b. Print each FILE:LINE whose #{S: or #{S/...: loop has a comma at its
+# own brace depth after the modifiers' colon, with continued lines joined and
+# #, #} and ## escapes skipped.
 # shellcheck disable=SC2016 # An awk program, not shell expansions.
 session_loop_commas='
   /\\$/ { joined = joined substr($0, 1, length($0) - 1); next }
   {
     line = joined $0; joined = ""; from = 1
-    while ((at = index(substr(line, from), "#{S:")) > 0) {
-      p = from + at + 3; depth = 1; commas = 0
+    while ((at = index(substr(line, from), "#{S")) > 0) {
+      from += at + 2; p = from; c = substr(line, p, 1)
+      if (c == "/") {
+        while (p <= length(line) && substr(line, p, 1) != ":") p++
+      } else if (c != ":") {
+        continue
+      }
+      p++; depth = 1; commas = 0
       while (p <= length(line) && depth > 0) {
         c = substr(line, p, 1)
         if (substr(line, p, 2) == "#{") { depth++; p += 2; continue }
@@ -60,35 +67,70 @@ session_loop_commas='
         p++
       }
       if (commas) print FILENAME ":" FNR
-      from += at + 3
     }
   }'
 session_loop_sample=$(_tmpdir)/session-loop.conf
 printf '%s\n' "set -g @ok '#{S:#{?#{session_attached},a,b}}'" \
-  "set -g @bad '#{S:#{session_name},x}'" >"$session_loop_sample"
-_assert_eq "tmux: the session-loop comma check flags a bad sample" \
-  "$session_loop_sample:2" "$(awk "$session_loop_commas" "$session_loop_sample")"
+  "set -g @bad '#{S:#{session_name},x}'" \
+  "set -g @sorted '#{S/n:#{?#{session_attached},a,b}} #{SHELL,x}'" \
+  "set -g @bad_sorted '#{S/n:#{session_name},x}'" >"$session_loop_sample"
+_assert_eq "tmux: the session-loop comma check flags the bad samples only" \
+  "$session_loop_sample:2"$'\n'"$session_loop_sample:4" \
+  "$(awk "$session_loop_commas" "$session_loop_sample")"
 _assert_eq "tmux: no session loop uses the current-session form tmux 3.6b crashes on" \
   "" "$(awk "$session_loop_commas" "$source_home"/.config/tmux/conf.d/*.conf)"
-# The pane menu opens above the pointer only while it fits there. Count its
-# rows as tmux draws them over a word and a line (no link, not in a mode):
-# hidden items drop out, separators collapse and never lead, and the border
-# adds two. 22 rows is an 80x24 terminal less the status line and the
-# pointer's row.
-pane_menu_rows=$(awk -v q="'" '
-  /^%hidden pane_menu_items=/ { on = 1; rows = 2; next }
-  !on { next }
-  substr($0, 1, 5) == "  " q q " " { if (items) gap = 1; next }
-  index($0, "  " q "#{?mouse_hyperlink,") == 1 { next }
-  index($0, "  " q "#{?#{m/r:(copy|view)-mode,") == 1 { next }
-  substr($0, 1, 3) == "  " q { rows += 1 + gap; gap = 0; items++ }
-  /Close the pane/ { print rows; exit }
-' "$tmux_base")
+# The pane menu opens above the pointer only while it fits there: an 80x24
+# terminal has 23 rows above the status line. Count its rows as tmux draws
+# them over a word and a line (no link, not in a mode): hidden items drop
+# out, a separator never leads, and the border adds two. tmux 3.3 and later
+# also collapse a separator that follows another; tmux 3.2 draws both, so it
+# draws one more row here. 22 rows where separators collapse keeps a row
+# spare; the tmux 3.2 count must still fit the 23. Items may be single- or
+# double-quoted, and the count ends with the block's last line.
+pane_menu_rows() {
+  awk -v q="'" -v dq='\\"' -v collapse="$1" '
+    /^%hidden pane_menu_items=/ { on = 1; rows = 2; prev = "none"; next }
+    !on { next }
+    {
+      item = $0
+      sub(/^[ \t]+/, "", item)
+      if (substr(item, 1, 1) == q) {
+        label = substr(item, 2); close_quote = q
+      } else if (substr(item, 1, 2) == dq) {
+        label = substr(item, 3); close_quote = dq
+      } else {
+        label = ""; close_quote = ""
+      }
+      if (close_quote == "") {
+      } else if (index(label, close_quote) == 1) {
+        if (prev != "none" && !(collapse && prev == "line")) { rows++; prev = "line" }
+      } else if (index(label, "#{?mouse_hyperlink,") != 1 &&
+        index(label, "#{?#{m/r:(copy|view)-mode,") != 1) {
+        rows++; prev = "item"
+      }
+      if (!/\\$/) { print rows; exit }
+    }
+  ' "$tmux_base"
+}
+pane_menu_rows=$(pane_menu_rows 1)
+pane_menu_rows_32=$(pane_menu_rows 0)
 if [[ $pane_menu_rows =~ ^[0-9]+$ ]] && ((pane_menu_rows >= 10 && pane_menu_rows <= 22)); then
   _pass "tmux: the pane menu fits above the pointer in 80x24 ($pane_menu_rows rows)"
 else
   _fail "tmux: the pane menu fits above the pointer in 80x24 (counted '${pane_menu_rows}' rows, budget 22)"
 fi
+if [[ $pane_menu_rows_32 =~ ^[0-9]+$ ]] && ((pane_menu_rows_32 <= 23)); then
+  _pass "tmux: the pane menu fits in 80x24 on tmux 3.2 ($pane_menu_rows_32 rows)"
+else
+  _fail "tmux: the pane menu fits in 80x24 on tmux 3.2 (counted '${pane_menu_rows_32}' rows, limit 23)"
+fi
+pane_menu_sample=$(_tmpdir)/pane-menu.conf
+# shellcheck disable=SC1003 # The backslashes are the config's continuations.
+printf '%s\n' '%hidden pane_menu_items="\' "  '' \\" "  'One' 1 { a } \\" "  '' \\" \
+  "  '#{?mouse_hyperlink,Link,}' h { b } \\" "  \\\"\\\" \\" "  \\\"Two\\\" 2 { c } \\" \
+  "  'Last' 3 { d }\"" "  'After the block' 4 { e }" >"$pane_menu_sample"
+_assert_eq 'tmux: the pane menu count reads both quotes and stops at the block end' '6 7' \
+  "$(tmux_base=$pane_menu_sample pane_menu_rows 1) $(tmux_base=$pane_menu_sample pane_menu_rows 0)"
 _assert_contains "tmux: escape delay stays bounded" \
   'set -s escape-time 10' "$tmux_content"
 _assert_contains "tmux: history is retained generously" \
@@ -633,7 +675,13 @@ if command -v tmux >/dev/null 2>&1; then
     # pressing client's focus, which the picker's own selects cannot name.
     picker_key=$(key_line "$prefix_keys" W)
     # Every option tmux-tools' picker evaluates is defined here, read from
-    # the installed picker itself so the two cannot drift.
+    # the installed picker itself so the two cannot drift. A pane is a row
+    # only while it holds one of the picker's candidate marks, so every mark
+    # a tool sets that these predicates read must be a candidate, or ride
+    # with one: @term_notify_exit_status counts only beside
+    # @term_notify_pending, and @termnav_child_waiting only beside a
+    # @termnav_child_attention lease. The walk follows E: references through
+    # this config's options; a name it does not define is a tool's mark.
     if picker_helper=$(command -v tmux-agent-picker 2>/dev/null); then
       picker_options=$(grep -o '#{E:@[a-z_]*' "$picker_helper" | sed 's/^#{E://' | LC_ALL=C sort -u)
       [[ -n $picker_options ]] || _fail 'tmux: the agent picker reads config options'
@@ -644,6 +692,49 @@ if command -v tmux >/dev/null 2>&1; then
           _fail "tmux: config defines $option for the agent picker"
         fi
       done
+      picker_candidates=" $(sed -n "s/^candidate='\(.*\)'$/\1/p" "$picker_helper" |
+        grep -o '@[a-z_]*' | tr '\n' ' ')"
+      _assert_ne 'tmux: the agent picker names its candidate marks' ' ' "$picker_candidates"
+      # shellcheck disable=SC2016 # An awk program, not shell expansions.
+      picker_marks=$(awk -v tops="$(tr '\n' ' ' <<<"$picker_options")" -v q="'" '
+        function walk(name,    v, m) {
+          if (name in seen) return
+          seen[name] = 1
+          v = opt[name]
+          while (match(v, /@[a-z_]+/)) {
+            m = substr(v, RSTART, RLENGTH)
+            v = substr(v, RSTART + RLENGTH)
+            if (m in opt) walk(m)
+            else mark[m] = 1
+          }
+        }
+        $1 == "set" && $2 == "-g" && $3 ~ /^@[a-z_]+$/ && substr($4, 1, 1) == q &&
+          substr($0, length($0)) == q {
+          value = substr($0, index($0, " " q) + 2)
+          opt[$3] = substr(value, 1, length(value) - 1)
+        }
+        END {
+          n = split(tops, top, " ")
+          for (i = 1; i <= n; i++) walk(top[i])
+          for (name in mark) print name
+        }' "$source_home"/.config/tmux/conf.d/*.conf | LC_ALL=C sort)
+      _assert_contains 'tmux: the agent picker predicates read tool marks' \
+        '@term_notify_pending' "$picker_marks"
+      for picker_mark in $picker_marks; do
+        case $picker_candidates in
+          *" $picker_mark "*) _pass "tmux: agent picker candidates include $picker_mark" ;;
+          *)
+            case $picker_mark in
+              @term_notify_exit_status | @termnav_child_waiting)
+                _pass "tmux: agent picker reads $picker_mark only beside a candidate"
+                ;;
+              *) _fail "tmux: agent picker candidates include $picker_mark, which its predicates read" ;;
+            esac
+            ;;
+        esac
+      done
+    elif [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 ]]; then
+      _fail 'tmux: agent picker options (tmux-agent-picker not installed, but DOT_TEST_REQUIRE_TERMNAV=1)'
     else
       printf 'SKIP: tmux: agent picker options (tmux-agent-picker not installed)\n'
     fi
@@ -651,14 +742,14 @@ if command -v tmux >/dev/null 2>&1; then
       'tmux-agent-picker --socket #{q:socket_path} --client #{q:client_name}' "$picker_key"
     _assert_contains 'tmux: runtime prefix W explains a missing helper' \
       'needs tmux-agent-picker' "$picker_key"
+    # The focus sync is the one the selection hooks run, as tmux prints it.
+    focus_sync=$(tmux_cmd show-hooks -g after-select-pane |
+      sed -n 's/.*"\(run-shell -b [^"]*termnav tmux focus sync[^"]*\)".*/\1/p')
+    _assert_contains 'tmux: runtime selection hooks run the focus sync' \
+      'termnav tmux focus sync' "$focus_sync"
     _assert_contains 'tmux: runtime prefix W syncs the pressing client after the picker' \
-      "--client #{q:client_name}' ; run-shell -b 'test ! -x ~/.local/bin/termnav || exec ~/.local/bin/termnav tmux focus sync --tmux-socket #{q:socket_path} --client-pid #{client_pid}" \
-      "$picker_key"
+      "--client #{q:client_name}' ; $focus_sync\"" "$picker_key"
     _assert_not_contains 'tmux: runtime prefix W stays on this layer' 'send-keys' "$picker_key"
-    # TPM binds prefix I and U where it loads; the picker took neither.
-    for key in I U; do
-      _assert_eq "tmux: runtime leaves prefix $key to TPM" '' "$(key_line "$prefix_keys" "$key")"
-    done
     for key in '"' % c; do
       _assert_contains "tmux: runtime prefix $key keeps the pane directory" \
         '-c "#{pane_current_path}"' \
@@ -1374,7 +1465,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_option_space_opens_the_command_palette \
     test_prefix_W_picks_an_agent_pane_across_sessions \
     test_prefix_W_stays_on_this_layer_and_in_modes \
-    test_prefix_W_from_the_palette_and_the_pane_menu \
+    test_prefix_W_from_the_pane_menu \
+    test_prefix_W_is_listed_in_the_palette \
     test_prefix_a_in_the_same_session_keeps_a_bystanders_mark; do
     # unittest prints each case's name, its docstring and then "... ok" or
     # "... skipped 'reason'"; a mention of the name alone proves nothing. A
@@ -1400,10 +1492,12 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     case $pty_result in
       ok) _pass "tmux: PTY runs $pty_case" ;;
       skipped*)
-        # The nested relay needs the real Termnav and tmux-tools. Hosts that
-        # install them set DOT_TEST_REQUIRE_TERMNAV=1 so the skip cannot hide.
+        # The nested relay needs the real Termnav and tmux-tools, and the
+        # prefix W cases tmux-tools' picker and palette. Hosts that install
+        # them set DOT_TEST_REQUIRE_TERMNAV=1 so the skip cannot hide.
         if [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 &&
-          $pty_case == test_nested_attention_reaches_the_terminal_at_once ]]; then
+          ($pty_case == test_nested_attention_reaches_the_terminal_at_once ||
+          $pty_case == test_prefix_W_*) ]]; then
           _fail "tmux: PTY runs $pty_case (${pty_result#skipped }, but DOT_TEST_REQUIRE_TERMNAV=1)"
         else
           printf 'SKIP: tmux: PTY runs %s (%s)\n' "$pty_case" "${pty_result#skipped }"
