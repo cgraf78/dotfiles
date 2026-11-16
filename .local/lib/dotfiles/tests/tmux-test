@@ -39,6 +39,37 @@ _assert_not_contains "tmux: base fragment does not invoke Neovim" \
 # current and keeps its mark (the PTY suite presses it).
 _assert_contains "tmux: prefix a selects the pane before its window in its own session" \
   '#{?#{E:@attention_next_here},select-pane -t ' "$tmux_content"
+# tmux 3.6b segfaults expanding a session loop's "current session" form,
+# #{S:all,current}, when the format has no client (nobody attached, from a
+# hook or a script); tmux fixed it upstream after 3.6b. Print each
+# FILE:LINE whose #{S: loop has a comma at its own brace depth, with
+# continued lines joined and #, #} and ## escapes skipped.
+# shellcheck disable=SC2016 # An awk program, not shell expansions.
+session_loop_commas='
+  /\\$/ { joined = joined substr($0, 1, length($0) - 1); next }
+  {
+    line = joined $0; joined = ""; from = 1
+    while ((at = index(substr(line, from), "#{S:")) > 0) {
+      p = from + at + 3; depth = 1; commas = 0
+      while (p <= length(line) && depth > 0) {
+        c = substr(line, p, 1)
+        if (substr(line, p, 2) == "#{") { depth++; p += 2; continue }
+        if (c == "#") { p += 2; continue }
+        if (c == "}") depth--
+        else if (c == "," && depth == 1) commas++
+        p++
+      }
+      if (commas) print FILENAME ":" FNR
+      from += at + 3
+    }
+  }'
+session_loop_sample=$(_tmpdir)/session-loop.conf
+printf '%s\n' "set -g @ok '#{S:#{?#{session_attached},a,b}}'" \
+  "set -g @bad '#{S:#{session_name},x}'" >"$session_loop_sample"
+_assert_eq "tmux: the session-loop comma check flags a bad sample" \
+  "$session_loop_sample:2" "$(awk "$session_loop_commas" "$session_loop_sample")"
+_assert_eq "tmux: no session loop uses the current-session form tmux 3.6b crashes on" \
+  "" "$(awk "$session_loop_commas" "$source_home"/.config/tmux/conf.d/*.conf)"
 _assert_contains "tmux: escape delay stays bounded" \
   'set -s escape-time 10' "$tmux_content"
 _assert_contains "tmux: history is retained generously" \
