@@ -216,10 +216,18 @@ clip_copy() {
     # A copy to tmux must not be lost to an unusable history directory:
     # stage the selection privately outside it and publish it unrecorded.
     [[ -n "$client" ]] || return 1
-    capture_file=$(
+    if ! capture_file=$(
       umask 077
-      mktemp "${TMPDIR:-/tmp}/clip.XXXXXXXXXX"
-    ) || return
+      mktemp "${TMPDIR:-/tmp}/clip.XXXXXXXXXX" 2>/dev/null
+    ); then
+      # With nowhere to stage either, pipe the selection straight to tmux.
+      # tmux drops empty input silently, so that case cannot be reported.
+      capture_file=''
+      _client_target || return
+      "${CLIP_CMD[@]}" || return
+      _notice 'clip: history unavailable; copied without recording it'
+      return 0
+    fi
   fi
   cat >"$capture_file" || return
   if [[ -s "$capture_file" ]]; then has_content=1; fi

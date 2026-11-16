@@ -409,6 +409,19 @@ env PATH="$test_path" XDG_DATA_HOME="$test_root/no-history" TMPDIR="$test_root/s
 _assert_exit "a copy with no history stages outside it and publishes" 0 "$?"
 _assert_eq "a copy with no history leaves no staging file" "" \
   "$(command ls -A "$test_root/stage")"
+# With nowhere to stage either, the selection is still copied, unrecorded.
+rm -f "$copy_log" "$test_root/tmux-log"
+env PATH="$test_path" XDG_DATA_HOME="$test_root/no-history" \
+  TMPDIR="$test_root/missing-stage" \
+  CLIP_TEST_TMUX_LOG="$test_root/tmux-log" CLIP_TEST_COPY_LOG="$copy_log" \
+  "$clip" copy --client /dev/ttys007 --pane %7 <"$payload" 2>"$test_root/no-stage-error"
+_assert_exit "a copy with no history or staging still copies" 0 "$?"
+_clip_equal "$payload" "$copy_log"
+_assert_exit "a copy with no history or staging publishes the exact bytes" 0 "$?"
+_assert_contains "a copy with no history or staging says it copied" \
+  'history unavailable; copied without recording it' "$(cat "$test_root/no-stage-error")"
+_assert_not_contains "a copy with no history or staging hides mktemp's error" \
+  'mktemp' "$(cat "$test_root/no-stage-error")"
 
 # A history record that fails still lets the copy through, and says so.
 rm -f "$copy_log" "$test_root/tmux-log"
