@@ -70,7 +70,7 @@ On the conventional platform legs, `with-relay-deps` first installs the
 base manifest's `cgraf78/termnav` and `cgraf78/tmux-tools` declarations
 through the candidate home's Shdeps, then exports
 `DOT_TEST_REQUIRE_TERMNAV=1`, so tmux-test's nested relay PTY case, its
-prefix W PTY cases and its agent picker option checks fail instead of
+prefix C-a PTY cases and its agent picker option checks fail instead of
 skipping when a provider is missing. Termnav publishes release
 binaries for every platform leg. The Termux leg installs both through `dot
 update` but does not require the relay: Termnav ships no Android x86_64

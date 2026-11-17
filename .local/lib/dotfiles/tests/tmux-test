@@ -682,6 +682,7 @@ if $tmux_usable; then
     tmux_cmd bind-key -T prefix S run-shell tmux-save-session
     tmux_cmd bind-key -T prefix R run-shell tmux-restore-session
     tmux_cmd bind-key -T prefix N display-message stale-task-menu
+    tmux_cmd bind-key -T prefix W display-message stale-agent-picker
     # A server started from a VS Code terminal holds VS Code's BROWSER helper.
     tmux_cmd set-environment -g BROWSER /vscode-server/bin/helpers/browser.sh
     tmux_cmd set-environment -g VSCODE_IPC_HOOK_CLI /run/vscode-ipc.sock
@@ -797,6 +798,8 @@ if $tmux_usable; then
       'source-file' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "R"')"
     _assert_eq 'tmux: runtime removes the stale prefix N task menu' \
       '' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "N"')"
+    _assert_eq 'tmux: runtime removes the stale prefix W agent picker' \
+      '' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "W"')"
     _assert_eq "tmux: runtime unbinds prefix p along with prefix n's next-window" \
       '' "$(printf '%s\n' "$prefix_keys" | awk '$4 == "p"')"
     _assert_contains 'tmux: runtime prefix n opens the task menu' \
@@ -919,10 +922,10 @@ if $tmux_usable; then
       '#{pane_in_mode}' "$palette_key"
     _assert_contains 'tmux: runtime Option-Space explains a missing helper' \
       'needs tmux-command-palette' "$palette_key"
-    # prefix W opens tmux-tools' agent picker on this layer only (no
+    # prefix C-a opens tmux-tools' agent picker on this layer only (no
     # send-keys inward), for this server and client, and then reconciles the
     # pressing client's focus, which the picker's own selects cannot name.
-    picker_key=$(key_line "$prefix_keys" W)
+    picker_key=$(key_line "$prefix_keys" C-a)
     # Every option tmux-tools' picker evaluates is defined here, read from
     # the installed picker itself so the two cannot drift. A pane is a row
     # only while it holds one of the picker's candidate marks, so every mark
@@ -1000,18 +1003,18 @@ if $tmux_usable; then
     else
       printf 'SKIP: tmux: agent picker options (tmux-agent-picker not installed)\n'
     fi
-    _assert_contains 'tmux: runtime prefix W opens the agent picker for this client' \
+    _assert_contains 'tmux: runtime prefix C-a opens the agent picker for this client' \
       'tmux-agent-picker --socket #{q:socket_path} --client #{q:client_name}' "$picker_key"
-    _assert_contains 'tmux: runtime prefix W explains a missing helper' \
+    _assert_contains 'tmux: runtime prefix C-a explains a missing helper' \
       'needs tmux-agent-picker' "$picker_key"
     # The focus sync is the one the selection hooks run, as tmux prints it.
     focus_sync=$(tmux_cmd show-hooks -g after-select-pane |
       sed -n 's/.*"\(run-shell -b [^"]*termnav tmux focus sync[^"]*\)".*/\1/p')
     _assert_contains 'tmux: runtime selection hooks run the focus sync' \
       'termnav tmux focus sync' "$focus_sync"
-    _assert_contains 'tmux: runtime prefix W syncs the pressing client after the picker' \
+    _assert_contains 'tmux: runtime prefix C-a syncs the pressing client after the picker' \
       "--client #{q:client_name}' ; $focus_sync\"" "$picker_key"
-    _assert_not_contains 'tmux: runtime prefix W stays on this layer' 'send-keys' "$picker_key"
+    _assert_not_contains 'tmux: runtime prefix C-a stays on this layer' 'send-keys' "$picker_key"
     for key in '"' % c; do
       _assert_contains "tmux: runtime prefix $key keeps the pane directory" \
         '-c "#{pane_current_path}"' \
@@ -1727,10 +1730,10 @@ if $tmux_usable && command -v python3 >/dev/null 2>&1; then
     test_menu_items_grey_out_where_they_cannot_apply \
     test_the_window_menu_acts_on_the_tab_clicked \
     test_option_space_opens_the_command_palette \
-    test_prefix_W_picks_an_agent_pane_across_sessions \
-    test_prefix_W_stays_on_this_layer_and_in_modes \
-    test_prefix_W_from_the_pane_menu \
-    test_prefix_W_is_listed_in_the_palette \
+    test_prefix_C_a_picks_an_agent_pane_across_sessions \
+    test_prefix_C_a_stays_on_this_layer_and_in_modes \
+    test_prefix_C_a_from_the_pane_menu \
+    test_prefix_C_a_is_listed_in_the_palette \
     test_prefix_a_in_the_same_session_keeps_a_bystanders_mark; do
     # unittest prints each case's name, its docstring and then "... ok" or
     # "... skipped 'reason'"; a mention of the name alone proves nothing. A
@@ -1757,11 +1760,11 @@ if $tmux_usable && command -v python3 >/dev/null 2>&1; then
       ok) _pass "tmux: PTY runs $pty_case" ;;
       skipped*)
         # The nested relay needs the real Termnav and tmux-tools, and the
-        # prefix W cases tmux-tools' picker and palette. Hosts that install
+        # prefix C-a cases tmux-tools' picker and palette. Hosts that install
         # them set DOT_TEST_REQUIRE_TERMNAV=1 so the skip cannot hide.
         if [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 &&
           ($pty_case == test_nested_attention_reaches_the_terminal_at_once ||
-          $pty_case == test_prefix_W_*) ]]; then
+          $pty_case == test_prefix_C_a_*) ]]; then
           _fail "tmux: PTY runs $pty_case (${pty_result#skipped }, but DOT_TEST_REQUIRE_TERMNAV=1)"
         else
           printf 'SKIP: tmux: PTY runs %s (%s)\n' "$pty_case" "${pty_result#skipped }"
