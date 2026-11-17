@@ -417,7 +417,7 @@ if command -v tmux >/dev/null 2>&1; then
     # The hook's if-shell is logged either way; only a run-shell line means
     # the context was published. tmux before 3.6 logs no commands at all, so
     # there the check could not fail and is skipped.
-    if printf '%s\n' "$control_messages" | grep -qF 'command: '; then
+    if [[ $control_messages == *'command: '* ]]; then
       _assert_eq 'tmux: control client does not publish terminal context' '' \
         "$(printf '%s\n' "$control_messages" | grep -F 'command: run-shell' |
           grep -F 'termnav tmux context')"
