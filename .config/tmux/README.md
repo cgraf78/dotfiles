@@ -42,8 +42,8 @@ other end.
 - Option-Space opens `tmux-tools`' `tmux-command-palette`, an fzf picker
   over every key binding that has a note; until `tmux-tools` provides it, the
   key says so.
-- `prefix W` opens `tmux-tools`' `tmux-agent-picker`, an fzf popup over every
-  agent pane on the server (see [Agent picker](#agent-picker)); until
+- `prefix C-a` opens `tmux-tools`' `tmux-agent-picker`, an fzf popup over
+  every agent pane on the server (see [Agent picker](#agent-picker)); until
   `tmux-tools` provides it, the key says so.
 - `prefix o` and `prefix O` copy the last one or N command output blocks
   through `tmux-tools`' `tmux-copy-last-output`, and `prefix A` pastes the
@@ -274,8 +274,8 @@ done mark on it stays.
 
 ### Agent picker
 
-`prefix W` opens `tmux-tools`' `tmux-agent-picker`: an fzf popup listing every
-pane on this server that needs attention or runs an agent, most urgent first,
+`prefix C-a` opens `tmux-tools`' `tmux-agent-picker`: an fzf popup listing
+every pane on this server that needs attention or runs an agent, most urgent first,
 with a preview, and Enter jumps to the one you pick in any session; `man
 tmux-agent-picker` describes the rows, the preview and the jump. This config
 supplies the options it reads: its red, yellow and green rows are `prefix a`'s
@@ -289,7 +289,7 @@ idle agents included.
 The palette lists it as "Pick an agent pane across sessions", and the pane
 menu has "Pick an agent pane...". It covers this tmux only: a pane hosting a
 nested tmux is one row, coloured by the nested layer's attention, and
-`prefix W` over it still opens this layer's picker; `C-S-b W` opens the
+`prefix C-a` over it still opens this layer's picker; `C-S-b C-a` opens the
 nested one's. With this config's acknowledgement hooks, the jump acknowledges
 only the pane you pick. From tmux 3.6 a popup moves focus off the current
 pane, so opening the picker acknowledges that pane's done mark and exit

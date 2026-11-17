@@ -3499,7 +3499,7 @@ class LeafStyleTest(unittest.TestCase):
         client: Client,
         offered: pathlib.Path,
         pick: str,
-        keys: bytes = b"\x02W",
+        keys: bytes = b"\x02\x01",
         hold: pathlib.Path | None = None,
     ) -> list[list[str]]:
         """Send KEYS, wait for the picker's popup, and return its rows' fields.
@@ -3525,8 +3525,8 @@ class LeafStyleTest(unittest.TestCase):
         dots = tuple(f"\x1b[{color}m●" for color in colors)
         return [row[0] for row in rows if row[3].startswith(dots)]
 
-    def test_prefix_W_picks_an_agent_pane_across_sessions(self) -> None:
-        """prefix W lists marked and agent panes everywhere and jumps there.
+    def test_prefix_C_a_picks_an_agent_pane_across_sessions(self) -> None:
+        """prefix C-a lists marked and agent panes everywhere and jumps there.
 
         Every jump names the pane in each command, so no bystander pane is
         made current on the way and acknowledged by the select hooks.
@@ -3536,12 +3536,12 @@ class LeafStyleTest(unittest.TestCase):
         client.set_focus(True)
         base_path, without_helper = self.picker_paths()
         self.tmux("set-environment", "-g", "PATH", without_helper)
-        self.press(client, b"W")
+        self.press(client, b"\x01")
         wait_until(
             lambda: (
                 "needs tmux-agent-picker" in self.tmux("show-messages", "-t", client.tty).stdout
             ),
-            "prefix W without the helper says what it needs",
+            "prefix C-a without the helper says what it needs",
         )
         self.tmux("set-environment", "-g", "PATH", base_path)
         offered = self.use_agent_picker()
@@ -3686,14 +3686,15 @@ class LeafStyleTest(unittest.TestCase):
         self.assertEqual("done", self.pending(own_done), "the old active pane keeps its mark")
         self.assertEqual("waiting", self.pending(own_waiting))
 
-    def test_prefix_W_stays_on_this_layer_and_in_modes(self) -> None:
-        """prefix W opens this layer's picker over a nested tmux and in modes."""
+    def test_prefix_C_a_stays_on_this_layer_and_in_modes(self) -> None:
+        """prefix C-a opens this layer's picker over a nested tmux and in modes."""
         client = Client(self)
         self.clients.append(client)
         offered = self.use_agent_picker()
 
-        # Over a nested tmux reporting mouse, prefix W is this layer's: the
-        # nested tmux receives nothing. C-S-b W types the prefix and W into it.
+        # Over a nested tmux reporting mouse, prefix C-a is this layer's: the
+        # nested tmux receives nothing. C-S-b C-a types the prefix and C-a into
+        # it.
         received = self.root / "nested-received"
         nested = self.recorder_pane("tmux", received, mouse=True)
         wait_until(lambda: self.client_pane(client) == nested, "the nested pane is current")
@@ -3705,12 +3706,12 @@ class LeafStyleTest(unittest.TestCase):
         offered.unlink()
         client.send(b"\x1b[98;6u")
         client.pump(0.1)
-        client.send(b"W")
+        client.send(b"\x01")
         wait_until(
-            lambda: received.exists() and received.read_bytes().endswith(b"\x02W"),
-            "C-S-b W reaches the nested tmux",
+            lambda: received.exists() and received.read_bytes().endswith(b"\x02\x01"),
+            "C-S-b C-a reaches the nested tmux",
         )
-        self.assertFalse(offered.exists(), "this layer opens no picker for C-S-b W")
+        self.assertFalse(offered.exists(), "this layer opens no picker for C-S-b C-a")
 
         # From a pane in copy mode the picker opens, and a target in copy mode
         # shows [COPY] and keeps its mode after the jump.
@@ -3721,7 +3722,7 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(lambda: self.client_view(client) == ("work", target), "the jump to work")
         self.assertEqual("copy-mode", self.show(target, "#{pane_mode}"))
 
-    def test_prefix_W_from_the_pane_menu(self) -> None:
+    def test_prefix_C_a_from_the_pane_menu(self) -> None:
         """The pane menu's item opens the picker, with the socket path quoted."""
         client = Client(self)
         self.clients.append(client)
@@ -3733,11 +3734,11 @@ class LeafStyleTest(unittest.TestCase):
         # space (this fixture's) reaches it quoted.
         client.send(b"\x02>")
         self.wait_drawn(client, b"Pick an agent pane", "the pane menu offers the picker")
-        rows = self.open_agent_picker(client, offered, target, keys=b"W")
+        rows = self.open_agent_picker(client, offered, target, keys=b"\x01")
         self.assertIn(target, [row[0] for row in rows])
         wait_until(lambda: self.client_view(client) == ("work", target), "the menu's jump")
 
-    def test_prefix_W_is_listed_in_the_palette(self) -> None:
+    def test_prefix_C_a_is_listed_in_the_palette(self) -> None:
         """The palette lists the picker under its note."""
         client = Client(self)
         self.clients.append(client)
@@ -3754,7 +3755,7 @@ class LeafStyleTest(unittest.TestCase):
         self.close_agent_picker(client, offered)
         self.assertRegex(
             offered.read_text(),
-            r"(?m)^Pick an agent pane across sessions +prefix W\tprefix\tW$",
+            r"(?m)^Pick an agent pane across sessions +prefix C-a\tprefix\tC-a$",
         )
 
     def test_prefix_a_in_the_same_session_keeps_a_bystanders_mark(self) -> None:

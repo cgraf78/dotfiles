@@ -45,7 +45,7 @@ jobs:
         export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
         # with-relay-deps installs the base manifest's Termnav (released
         # for every platform leg here) and tmux-tools, then requires
-        # tmux-test's nested relay and prefix W PTY cases to run instead
+        # tmux-test's nested relay and prefix C-a PTY cases to run instead
         # of skipping.
         .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
           .local/lib/dotfiles/tests/run-ci-candidate-home \
