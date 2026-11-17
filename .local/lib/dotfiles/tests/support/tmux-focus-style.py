@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import errno
+import fcntl
 import json
 import os
 import pathlib
@@ -15,9 +16,12 @@ import select
 import shlex
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 import unittest
 from unittest.mock import patch
@@ -52,13 +56,32 @@ def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
     raise AssertionError(f"timed out waiting for {description}")
 
 
+def set_terminal_size(descriptor: int, rows: int, columns: int) -> None:
+    """Set a terminal's size the way a terminal emulator does."""
+    fcntl.ioctl(descriptor, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+
+
 class Client:
     """One controllable terminal attachment to the isolated tmux server."""
 
-    def __init__(self, test: LeafStyleTest, session: str = "focus"):
+    def __init__(
+        self,
+        test: LeafStyleTest,
+        session: str = "focus",
+        size: tuple[int, int] | None = None,
+        wait: bool = True,
+    ):
+        """Attach to session; size is (rows, columns) before tmux starts.
+
+        With wait false the caller expects tmux to refuse the attachment, so
+        there is no client entry or first render to wait for.
+        """
         self.test = test
+        self.status: int | None = None
         self.pid, self.master = pty.fork()
         if self.pid == 0:
+            if size is not None:
+                set_terminal_size(0, *size)
             os.environ.clear()
             os.environ.update(test.environment)
             os.environ["TERM"] = "xterm-256color"
@@ -67,8 +90,9 @@ class Client:
                 ["tmux", "-S", str(test.socket), "attach-session", "-t", session],
             )
         self.tty = ""
-        wait_until(self._find_tty, "tmux client attachment")
-        self.pump_until_quiet("initial tmux render")
+        if wait:
+            wait_until(self._find_tty, "tmux client attachment")
+            self.pump_until_quiet("initial tmux render")
 
     def _find_tty(self) -> bool:
         listing = self.test.tmux("list-clients", "-F", "#{client_pid} #{client_tty}", check=False)
@@ -97,7 +121,16 @@ class Client:
     def drain(self) -> None:
         """Discard bytes already queued before requesting a new render."""
         while select.select([self.master], [], [], 0)[0]:
-            payload = os.read(self.master, 65536)
+            try:
+                payload = os.read(self.master, 65536)
+            except OSError as error:
+                # Linux reports EIO once the client has closed the terminal.
+                if error.errno == errno.EIO:
+                    return
+                raise
+            if not payload:
+                # macOS and the BSDs report a closed terminal as end of file.
+                return
             if b"\x1b[?996n" in payload:
                 os.write(self.master, b"\x1b[?997;1n")
 
@@ -151,6 +184,26 @@ class Client:
             f"timed out waiting for {description}: "
             f"expected {expected}, got {last_background}; {last_render!r}"
         )
+
+    def resize(self, rows: int, columns: int) -> None:
+        """Change the terminal size; the kernel signals tmux as a terminal would."""
+        set_terminal_size(self.master, rows, columns)
+
+    def exited(self) -> bool:
+        """Service the terminal and report whether the tmux client has exited.
+
+        A client tmux has detached may still be writing its last output, so
+        keep draining the terminal or that write could block its exit.
+        """
+        self.drain()
+        if self.pid is None:
+            return True
+        waited, status = os.waitpid(self.pid, os.WNOHANG)
+        if waited != self.pid:
+            return False
+        self.pid = None
+        self.status = os.waitstatus_to_exitcode(status)
+        return True
 
     def send(self, payload: bytes) -> None:
         """Write raw terminal input without asking tmux to synthesize a key."""
@@ -392,6 +445,7 @@ class LeafStyleTest(unittest.TestCase):
             "focus",
             "sleep 30",
         )
+        self.server_pid = int(self.tmux("display-message", "-p", "#{pid}").stdout)
         self.active = self.tmux("display-message", "-p", "#{pane_id}").stdout.strip()
         self.inactive = self.tmux(
             "split-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
@@ -410,9 +464,30 @@ class LeafStyleTest(unittest.TestCase):
         except Exception as error:
             errors.append(error)
         finally:
+            # A server stuck in a regression answers no kill-server and would
+            # outlive the suite at full CPU, so kill the process this test
+            # started. The server daemonizes, so its pid can be reused once it
+            # exits: kill it only while its command line names our socket.
+            pid = getattr(self, "server_pid", None)
+            if pid is not None and self.owns_server(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             self.temporary.cleanup()
         if errors:
             raise AssertionError(f"owned fixture cleanup failed: {errors}")
+
+    def owns_server(self, pid: int) -> bool:
+        """Return whether pid is still this test's tmux server."""
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "args=", "-p", str(pid)], text=True, capture_output=True, check=False
+            )
+        except OSError:
+            # Without ps there is no way to tell, so leave the process alone.
+            return False
+        return str(self.socket) in result.stdout
 
     def tmux(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -1382,15 +1457,129 @@ class LeafStyleTest(unittest.TestCase):
             outer_seen = self.tmux(
                 "show-options", "-p", "-t", host, "-v", "@child_lease_seen", check=False
             ).stdout.strip()
+            # The hook's run-shell discards the publisher's output, so run
+            # the same command for the outer session once more and keep what
+            # it says. Diagnostics only: the test has already failed.
+            outer_session = self.tmux(
+                "display-message", "-p", "-t", host, "#{session_id}", check=False
+            ).stdout.strip()
+            rerun = self.rerun_publisher(publisher, outer_session, terminal, field, value)
             self.fail(
                 f"terminal never saw {field}={value} (inner mark {inner_mark!r}, "
                 f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}, "
-                f"hook published {outer_seen!r}): {bytes(output)!r}"
+                f"hook published {outer_seen!r}; {rerun}): {bytes(output)!r}"
             )
 
         reaches(["set-option", *pane, "done"], "pending", 1)
         reaches(["set-option", *pane, "waiting"], "waiting", 1)
         reaches(["set-option", "-u", *pane], "pending", 0)
+
+    def rerun_publisher(
+        self, publisher: str, session: str, terminal: Client, field: str, value: int
+    ) -> str:
+        """Say why a relay frame went missing, for the failure message only.
+
+        The hook's run-shell discards the publisher's output, so run the same
+        command again, traced, while this test keeps reading the terminal:
+        whether its frame arrives now tells a dropped write from a publisher
+        that sends nothing. Termnav writes each frame without blocking, within
+        a short deadline, after proving the client owns its terminal, which on
+        hosts without /proc is a ps run, so time that too. Every step reports
+        its own failure inline so the caller's message survives.
+        """
+        frame = re.compile(rb"\x1b\]1337;SetUserVar=TERM_PANE_STATE=([A-Za-z0-9+/=]+)\x07")
+        trace = self.root / "publisher-trace"
+        started = time.monotonic()
+        late = bytearray()
+        with trace.open("wb") as stderr:
+            try:
+                # Its own session, so the Termnav processes it starts can be
+                # killed with it rather than outliving this test.
+                rerun = subprocess.Popen(
+                    ["bash", "-x", publisher, "--socket", str(self.socket), "--session", session],
+                    env=self.environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=stderr,
+                    start_new_session=True,
+                )
+            except OSError as error:
+                rerun = None
+                result = f"could not start ({error})"
+            if rerun is not None:
+                try:
+                    while rerun.poll() is None and time.monotonic() - started < 10:
+                        late.extend(terminal.pump(0.05))
+                    if rerun.poll() is None:
+                        result = "timed out after 10 s"
+                    else:
+                        result = f"exited {rerun.returncode} in {time.monotonic() - started:.2f} s"
+                finally:
+                    # Finished or not, whatever it left running is in its
+                    # group.
+                    try:
+                        os.killpg(rerun.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+                    rerun.wait()
+        late.extend(terminal.pump(0.5))
+        arrived = any(
+            json.loads(base64.b64decode(match[1])).get(field) == value
+            for match in frame.finditer(late)
+        )
+        steps = [
+            line.strip()
+            for line in trace.read_text(errors="replace").splitlines()
+            if "termnav tmux attention" in line or "status=" in line
+        ]
+        timings = []
+        ps = ""
+        for _ in range(3):
+            began = time.monotonic()
+            try:
+                subprocess.run(
+                    ["ps", "-p", str(terminal.pid), "-o", "pgid=", "-o", "tpgid="],
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+            except FileNotFoundError:
+                ps = "ps unavailable"
+                break
+            except subprocess.TimeoutExpired:
+                ps = "ps timed out after 10 s"
+                break
+            timings.append(time.monotonic() - began)
+        if not ps:
+            ps = f"ps for the client took {max(timings) * 1000:.0f} ms at most"
+        return f"publisher rerun {result}, its frame arrived {arrived}, {ps}, trace {steps[-12:]!r}"
+
+    def test_attaching_shows_no_error(self) -> None:
+        """A client attach shows no failed command and no config error.
+
+        tmux shows either in view mode over the pane as a client attaches: the
+        attach hook's Termnav call failed with "returned 127" on hosts without
+        Termnav, and tmux before 3.6 rejected the pane-scrollbars option.
+        """
+        # tmux 3.2 lacks the client focus hooks this config sets and lists
+        # those errors in that view, over anything else it would show.
+        if not self.supports_hook("client-focus-in"):
+            self.skipTest("tmux does not expose client focus hooks")
+        home = pathlib.Path(self.environment.get("HOME", "/nonexistent"))
+        if (home / ".local/bin/termnav").exists():
+            self.skipTest("this HOME has ~/.local/bin/termnav")
+        client = Client(self)
+        self.clients.append(client)
+        self.tmux("refresh-client", "-t", client.tty)
+        shown = re.sub(
+            r"\x1b(\[[0-9;?]*[A-Za-z]|[()][A-Z0-9]|[=>])",
+            " ",
+            client.pump(0.5).decode(errors="replace"),
+        )
+        shown = " ".join(shown.split())
+        self.assertNotIn("returned", shown)
+        pane = self.client_pane(client)
+        self.assertEqual("", self.show(pane, "#{pane_mode}"), shown[-600:])
 
     def current_pane(self, client: Client) -> str:
         return self.tmux("display-message", "-c", client.tty, "-p", "#{pane_id}").stdout.strip()
@@ -2618,6 +2807,169 @@ class LeafStyleTest(unittest.TestCase):
         )
         self.assertEqual("", keys(shell))
 
+    # Oversized clients. A closing terminal can report garbage such as
+    # 43690x43690; drawing a client that size takes the server minutes, during
+    # which it answers no client. A regression shows up as one of the waits
+    # below timing out.
+    def client_sizes(self) -> dict[str, str]:
+        rows = self.tmux("list-clients", "-F", "#{client_tty} #{client_width}x#{client_height}")
+        return dict(row.split() for row in rows.stdout.splitlines())
+
+    def window_size(self) -> str:
+        return self.show(self.active, "#{window_width}x#{window_height}")
+
+    def global_option(self, name: str) -> str:
+        return self.tmux("show-options", "-gv", name, check=False).stdout.strip()
+
+    def make_most_active(self, client: Client) -> None:
+        """Type into client so tmux treats it as the current client.
+
+        A command from outside any client, like this one, runs against the
+        current client, which is what a bare command in a hook would hit.
+        """
+        client.send(b"x")
+        wait_until(
+            lambda: self.show(self.active, "#{client_name}") == client.tty,
+            "the typing client to become the current client",
+        )
+
+    def assert_refused(self, victim: Client, healthy: Client | None, window: str) -> None:
+        """The oversized client exits cleanly and nothing else changes.
+
+        With no client left, the window keeps an ordinary size rather than
+        the one it had.
+        """
+        wait_until(victim.exited, "the oversized client to exit")
+        self.assertEqual(0, victim.status)
+        self.assertEqual([healthy.tty] if healthy else [], list(self.client_sizes()))
+        if healthy:
+            self.assertEqual(window, self.window_size())
+        else:
+            width, height = map(int, self.window_size().split("x"))
+            self.assertLessEqual(max(width, height), 4000)
+        detached = self.global_option("@oversized_client_detached")
+        if victim.tty:
+            self.assertEqual(victim.tty, detached)
+        else:
+            # A client refused at attach is gone before its tty is known.
+            self.assertNotEqual("", detached)
+        self.assertNotEqual(healthy.tty if healthy else None, detached)
+        self.assertLessEqual(int(self.global_option("@test_widest")), 4000)
+        # The guard changes window-size only for one server loop.
+        self.assertEqual("latest", self.global_option("window-size"))
+        self.assertEqual("", self.global_option("@tmux_window_size_restore"))
+        self.assertEqual("", self.global_option("@tmux_lone_window"))
+        local = self.tmux("show-options", "-wv", "-t", self.active, "window-size", check=False)
+        self.assertEqual("", local.stdout.strip())
+
+    def skip_without_guard(self) -> None:
+        if not self.tmux_at_least(3, 4):
+            self.skipTest("the oversized-client guard needs tmux 3.4")
+        # Record the widest any window gets, so a window that grew toward the
+        # bad client and shrank back still fails.
+        self.tmux("set-option", "-g", "@test_widest", "0")
+        self.tmux(
+            "set-hook",
+            "-g",
+            "window-resized[999]",
+            "set-option -gF @test_widest "
+            "'#{?#{e|>:#{window_width},#{@test_widest}},#{window_width},#{@test_widest}}'",
+        )
+
+    def test_an_oversized_client_is_detached_before_it_is_drawn(self) -> None:
+        self.skip_without_guard()
+        healthy = Client(self)
+        self.clients.append(healthy)
+        window = self.window_size()
+        victim = Client(self)
+        self.clients.append(victim)
+        victim.resize(43690, 43690)
+        self.assert_refused(victim, healthy, window)
+
+    def test_the_guard_detaches_the_oversized_client_not_the_active_one(self) -> None:
+        self.skip_without_guard()
+        victim = Client(self)
+        self.clients.append(victim)
+        healthy = Client(self)
+        self.clients.append(healthy)
+        window = self.window_size()
+        # In real use the terminal that breaks is not the one being typed in.
+        self.make_most_active(healthy)
+        victim.resize(43690, 43690)
+        self.assert_refused(victim, healthy, window)
+
+    def test_an_oversized_only_client_leaves_its_window_ordinary(self) -> None:
+        self.skip_without_guard()
+        # Fill the pane: tmux reflows every written cell when it resizes.
+        self.tmux("send-keys", "-t", self.active, "-l", "x" * 4000)
+        window = self.window_size()
+        victim = Client(self)
+        self.clients.append(victim)
+        victim.resize(43690, 43690)
+        self.assert_refused(victim, None, window)
+
+    def test_a_client_attaching_with_an_oversized_terminal_is_detached(self) -> None:
+        self.skip_without_guard()
+        healthy = Client(self)
+        self.clients.append(healthy)
+        window = self.window_size()
+        victim = Client(self, size=(43690, 43690), wait=False)
+        self.clients.append(victim)
+        self.assert_refused(victim, healthy, window)
+
+    def test_the_size_limit_is_4000_cells_each_way(self) -> None:
+        self.skip_without_guard()
+        healthy = Client(self)
+        self.clients.append(healthy)
+        for rows, columns, kept in (
+            (50, 4000, True),
+            (4000, 80, True),
+            (50, 4001, False),
+            (4001, 80, False),
+        ):
+            with self.subTest(size=f"{columns}x{rows}"):
+                self.tmux("set-option", "-gu", "@oversized_client_detached")
+                window = self.window_size()
+                client = Client(self)
+                self.clients.append(client)
+                client.resize(rows, columns)
+                if not kept:
+                    self.assert_refused(client, healthy, window)
+                    continue
+                # tmux runs the hook before it reads the next command, so once
+                # list-clients shows the new size the guard has already passed.
+                size = f"{columns}x{rows}"
+                tty = client.tty
+                wait_until(
+                    lambda tty=tty, size=size: self.client_sizes().get(tty) == size,
+                    f"the client to report {size}",
+                )
+                self.assertEqual("", self.global_option("@oversized_client_detached"))
+                client.close()
+                wait_until(
+                    lambda tty=tty: tty not in self.client_sizes(),
+                    "the client to leave",
+                )
+
+    def test_the_guard_skips_a_connection_that_has_not_identified(self) -> None:
+        self.skip_without_guard()
+        client = Client(self)
+        self.clients.append(client)
+        # A tmux command that has connected but not yet identified itself is
+        # a client with no name. Hold one open while the guard's hook runs.
+        # The server accepts connections in order, so once a later command
+        # has been answered it has accepted this one too.
+        pending = socket.socket(socket.AF_UNIX)
+        self.addCleanup(pending.close)
+        pending.connect(str(self.socket))
+        self.tmux("display-message", "-p", "")
+        client.resize(40, 120)
+        wait_until(
+            lambda: self.client_sizes().get(client.tty) == "120x40",
+            "the client to report 120x40",
+        )
+        self.assertEqual("", self.global_option("@oversized_client_detached"))
+
     # Right-click menus and the command palette. These cases read client
     # state through list-clients, which every supported tmux targets
     # correctly (tmux 3.2 cannot aim display-message -c at a client).
@@ -2639,8 +2991,14 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(drawn, description)
 
     def tmux_at_least(self, major: int, minor: int) -> bool:
-        match = re.search(r"(\d+)\.(\d+)", self.tmux("-V").stdout)
-        return match is not None and (int(match[1]), int(match[2])) >= (major, minor)
+        """Compare this tmux's version; a build from git ("tmux master") is newest."""
+        version = self.tmux("-V").stdout
+        match = re.search(r"(\d+)\.(\d+)", version)
+        if match is None:
+            if "master" in version:
+                return True
+            raise AssertionError(f"unrecognised tmux version {version!r}")
+        return (int(match[1]), int(match[2])) >= (major, minor)
 
     def right_click(
         self, client: Client, x: int, y: int, *, meta: bool = False, opens: bytes = b""
@@ -3115,6 +3473,361 @@ class LeafStyleTest(unittest.TestCase):
             quiet_received.exists() and b"\x1b " in quiet_received.read_bytes(),
             "the wrapped program without mouse reporting gets no Option-Space",
         )
+
+    def picker_paths(self) -> tuple[str, str]:
+        """Return the server's PATH, and that PATH without tmux-agent-picker.
+
+        Dropping the helper's directory may drop this tmux with it (both
+        install into ~/.local/bin), so the same tmux stays first.
+        """
+        path = self.tmux("show-environment", "-g", "PATH", check=False).stdout.strip()
+        base_path = path.partition("=")[2] if path.startswith("PATH=") else os.environ["PATH"]
+        same_tmux = self.root / "picker-tmux-bin"
+        if not same_tmux.exists():
+            same_tmux.mkdir()
+            (same_tmux / "tmux").symlink_to(shutil.which("tmux") or "tmux")
+        without_helper = ":".join(
+            [str(same_tmux)]
+            + [
+                d
+                for d in base_path.split(":")
+                if d and not (pathlib.Path(d) / "tmux-agent-picker").exists()
+            ]
+        )
+        return base_path, without_helper
+
+    def use_agent_picker(self) -> pathlib.Path:
+        """Serve the picker from tmux-tools with a stand-in fzf on the server.
+
+        Skips when tmux-tools' tmux-agent-picker is not installed. The
+        stand-in, which the palette uses too, records the rows it is offered
+        in the returned file, waits while $PICKER_HOLD names a missing file,
+        then prints the first row containing $PICKER_PICK, or exits 130
+        (fzf's cancel) when that is empty. It touches FILE.done as it exits.
+        tmux-tools' palette, found on the same original PATH, is linked
+        beside the picker when installed, since dropping the picker's
+        directory drops the palette too.
+        """
+        base_path, without_helper = self.picker_paths()
+        helper = shutil.which("tmux-agent-picker", path=base_path)
+        if helper is None:
+            self.skipTest("tmux-tools' tmux-agent-picker is not installed")
+        stub = self.root / "picker-bin"
+        stub.mkdir()
+        (stub / "tmux-agent-picker").symlink_to(helper)
+        palette = shutil.which("tmux-command-palette", path=base_path)
+        if palette is not None:
+            (stub / "tmux-command-palette").symlink_to(palette)
+        offered = self.root / "picker-offered"
+        fzf = stub / "fzf"
+        fzf.write_text(
+            "#!/bin/sh\n"
+            f"cat >'{offered}.tmp' && mv '{offered}.tmp' '{offered}'\n"
+            '[ -z "$PICKER_HOLD" ] || while [ ! -e "$PICKER_HOLD" ]; do sleep 0.05; done\n'
+            f"trap ': >\"{offered}.done\"' EXIT\n"
+            '[ -n "$PICKER_PICK" ] || exit 130\n'
+            f"grep -F -m 1 -- \"$PICKER_PICK\" '{offered}'\n"
+        )
+        fzf.chmod(0o755)
+        self.tmux("set-environment", "-g", "PATH", f"{stub}:{without_helper}")
+        self.tmux("set-environment", "-g", "PICKER_HOLD", "")
+        return offered
+
+    def open_agent_picker(
+        self,
+        client: Client,
+        offered: pathlib.Path,
+        pick: str,
+        keys: bytes = b"\x02W",
+        hold: pathlib.Path | None = None,
+    ) -> list[list[str]]:
+        """Send KEYS, wait for the picker's popup, and return its rows' fields.
+
+        PICK is a pane id (its row is chosen) or empty (the popup is
+        cancelled). With HOLD the stand-in waits until that file exists.
+        """
+        offered.unlink(missing_ok=True)
+        pathlib.Path(f"{offered}.done").unlink(missing_ok=True)
+        self.tmux("set-environment", "-g", "PICKER_PICK", f"{pick}\t" if pick else "")
+        self.tmux("set-environment", "-g", "PICKER_HOLD", str(hold) if hold else "")
+        client.send(keys)
+        wait_until(offered.exists, "the picker offers its rows")
+        return [row.split("\t") for row in offered.read_text().splitlines()]
+
+    def close_agent_picker(self, client: Client, offered: pathlib.Path) -> None:
+        """Wait until the stand-in fzf has exited and the popup has closed."""
+        wait_until(pathlib.Path(f"{offered}.done").exists, "the picker's fzf exits")
+        client.pump(0.3)
+
+    def picker_levels(self, rows: list[list[str]], *colors: int) -> list[str]:
+        """Pane ids of the rows whose dot has one of the ANSI COLORS."""
+        dots = tuple(f"\x1b[{color}m●" for color in colors)
+        return [row[0] for row in rows if row[3].startswith(dots)]
+
+    def test_prefix_W_picks_an_agent_pane_across_sessions(self) -> None:
+        """prefix W lists marked and agent panes everywhere and jumps there.
+
+        Every jump names the pane in each command, so no bystander pane is
+        made current on the way and acknowledged by the select hooks.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+        base_path, without_helper = self.picker_paths()
+        self.tmux("set-environment", "-g", "PATH", without_helper)
+        self.press(client, b"W")
+        wait_until(
+            lambda: (
+                "needs tmux-agent-picker" in self.tmux("show-messages", "-t", client.tty).stdout
+            ),
+            "prefix W without the helper says what it needs",
+        )
+        self.tmux("set-environment", "-g", "PATH", base_path)
+        offered = self.use_agent_picker()
+
+        # The client's own session has a background window whose active pane
+        # is done and whose other pane, an agent, is waiting.
+        own_done = self.tmux(
+            "new-window", "-d", "-t", "focus:", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertRegex(own_done, r"^%[0-9]+$", "tmux returned no pane id")
+        own_waiting = self.tmux(
+            "split-window",
+            "-d",
+            "-t",
+            own_done,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        self.assertRegex(own_waiting, r"^%[0-9]+$", "tmux returned no pane id")
+        # Another session's current pane is done: a bystander for a jump to
+        # its other panes.
+        bystander = self.new_session("other")
+        other_done = self.tmux(
+            "split-window", "-d", "-t", bystander, "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        other_waiting = self.tmux(
+            "split-window",
+            "-d",
+            "-t",
+            bystander,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        for pane in (other_done, other_waiting):
+            self.assertRegex(pane, r"^%[0-9]+$", "tmux returned no pane id")
+        # A glob-named session with a grouped peer, and an idle agent.
+        grouped = self.new_session("w[1]", "codex")
+        self.tmux("new-session", "-d", "-t", "w[1]", "-s", "w[1]-peer")
+        idle = self.new_session("idle", "codex")
+        for pane, kind in (
+            (own_done, "done"),
+            (own_waiting, "waiting"),
+            (bystander, "done"),
+            (other_done, "done"),
+            (other_waiting, "waiting"),
+            (grouped, "waiting"),
+        ):
+            self.tmux("set-option", "-p", "-t", pane, "@term_notify_pending", kind)
+        wait_until(
+            lambda: self.show(idle, "#{pane_current_command}") == "codex",
+            "the idle agent runs as codex",
+        )
+
+        # The red, yellow and green rows are prefix a's list, in its order.
+        # Opening the popup acknowledges the current pane on tmux 3.6, so
+        # read the list while the popup is open.
+        release = self.root / "picker-release"
+        rows = self.open_agent_picker(client, offered, "", hold=release)
+        attention = self.attention_panes(client)
+        release.touch()
+        self.close_agent_picker(client, offered)
+        self.assertEqual(attention, self.picker_levels(rows, 31, 33, 32))
+        self.assertEqual(idle, rows[-1][0], "the idle agent comes last")
+        self.assertTrue(rows[-1][3].startswith("\x1b[90m○"), rows[-1])
+
+        # A done pane in another session: the client lands there and it is
+        # acknowledged, while that session's previous current pane keeps
+        # its mark.
+        self.open_agent_picker(client, offered, other_done)
+        wait_until(lambda: self.client_view(client) == ("other", other_done), "the jump to other")
+        wait_until(lambda: self.pending(other_done) == "", "arrival acknowledges the done pane")
+        self.assertEqual("done", self.pending(bystander), "the bystander keeps its mark")
+
+        # A waiting agent keeps its mark through the visit.
+        self.open_agent_picker(client, offered, other_waiting)
+        wait_until(
+            lambda: self.client_view(client) == ("other", other_waiting), "the jump to waiting"
+        )
+        self.assertEqual("waiting", self.pending(other_waiting))
+
+        # A grouped peer: with another client in w[1], this client lands in
+        # w[1]-peer, and the other client's session and window stay.
+        theirs = Client(self, "w[1]")
+        self.clients.append(theirs)
+        # Attaching may print into the pane (the context hook without
+        # termnav), which would leave it in view mode.
+        if self.show(grouped, "#{pane_in_mode}") != "0":
+            self.tmux("send-keys", "-X", "-t", grouped, "cancel")
+        their_view = (self.client_view(theirs)[0], self.client_format(theirs, "#{window_id}"))
+        self.open_agent_picker(client, offered, grouped)
+        wait_until(
+            lambda: self.client_view(client) == ("w[1]-peer", grouped), "the jump to the peer"
+        )
+        self.assertEqual(
+            their_view, (self.client_view(theirs)[0], self.client_format(theirs, "#{window_id}"))
+        )
+
+        # Esc moves nothing and leaves other panes' marks. From tmux 3.6 the
+        # popup's focus change acknowledges the current pane: done and its
+        # exit status clear, waiting stays. tmux tracks pane focus across
+        # clients, so the other client, which also shows that pane, leaves.
+        theirs.close()
+        self.clients.remove(theirs)
+        wait_until(
+            lambda: len(self.tmux("list-clients", "-F", "#{client_tty}").stdout.split()) == 1,
+            "the other client detaches",
+        )
+        marks = {pane: self.pending(pane) for pane in (own_done, own_waiting, bystander)}
+        view = self.client_view(client)
+        self.open_agent_picker(client, offered, "")
+        self.close_agent_picker(client, offered)
+        self.assertEqual(view, self.client_view(client))
+        self.assertEqual("waiting", self.pending(grouped))
+        self.tmux("set-option", "-p", "-t", grouped, "@term_notify_pending", "done")
+        self.tmux("set-option", "-p", "-t", grouped, "@term_notify_exit_status", "3")
+        self.open_agent_picker(client, offered, "")
+        self.close_agent_picker(client, offered)
+        self.assertEqual(marks, {pane: self.pending(pane) for pane in marks})
+        if self.tmux_at_least(3, 6):
+            wait_until(lambda: self.pending(grouped) == "", "the popup acknowledges the pane")
+            self.assertEqual(
+                "",
+                self.tmux(
+                    "show-options", "-pqv", "-t", grouped, "@term_notify_exit_status"
+                ).stdout.strip(),
+            )
+        else:
+            self.assertEqual("done", self.pending(grouped), "older tmux sends no popup focus")
+        self.assertNotEqual("view-mode", self.show(grouped, "#{pane_mode}"))
+
+        # The client's own session: a waiting agent beside the done active
+        # pane of a background window. The client lands on the agent, and
+        # the window's old active pane is never current, so it stays done.
+        self.tmux("switch-client", "-c", client.tty, "-t", f"focus:{self.window_of(self.active)}")
+        wait_until(lambda: self.client_view(client)[0] == "focus", "back in focus")
+        self.open_agent_picker(client, offered, own_waiting)
+        wait_until(lambda: self.client_view(client) == ("focus", own_waiting), "the jump in focus")
+        self.assertEqual("done", self.pending(own_done), "the old active pane keeps its mark")
+        self.assertEqual("waiting", self.pending(own_waiting))
+
+    def test_prefix_W_stays_on_this_layer_and_in_modes(self) -> None:
+        """prefix W opens this layer's picker over a nested tmux and in modes."""
+        client = Client(self)
+        self.clients.append(client)
+        offered = self.use_agent_picker()
+
+        # Over a nested tmux reporting mouse, prefix W is this layer's: the
+        # nested tmux receives nothing. C-S-b W types the prefix and W into it.
+        received = self.root / "nested-received"
+        nested = self.recorder_pane("tmux", received, mouse=True)
+        wait_until(lambda: self.client_pane(client) == nested, "the nested pane is current")
+        target = self.new_session("work", "codex")
+        self.tmux("set-option", "-p", "-t", target, "@term_notify_pending", "waiting")
+        self.open_agent_picker(client, offered, "")
+        self.close_agent_picker(client, offered)
+        self.assertFalse(received.exists() and received.read_bytes(), "the nested tmux got keys")
+        offered.unlink()
+        client.send(b"\x1b[98;6u")
+        client.pump(0.1)
+        client.send(b"W")
+        wait_until(
+            lambda: received.exists() and received.read_bytes().endswith(b"\x02W"),
+            "C-S-b W reaches the nested tmux",
+        )
+        self.assertFalse(offered.exists(), "this layer opens no picker for C-S-b W")
+
+        # From a pane in copy mode the picker opens, and a target in copy mode
+        # shows [COPY] and keeps its mode after the jump.
+        self.tmux("copy-mode", "-t", self.client_pane(client))
+        self.tmux("copy-mode", "-t", target)
+        rows = self.open_agent_picker(client, offered, target)
+        self.assertIn("[COPY]", next(row[3] for row in rows if row[0] == target))
+        wait_until(lambda: self.client_view(client) == ("work", target), "the jump to work")
+        self.assertEqual("copy-mode", self.show(target, "#{pane_mode}"))
+
+    def test_prefix_W_from_the_pane_menu(self) -> None:
+        """The pane menu's item opens the picker, with the socket path quoted."""
+        client = Client(self)
+        self.clients.append(client)
+        offered = self.use_agent_picker()
+        target = self.new_session("work", "codex")
+        self.tmux("set-option", "-p", "-t", target, "@term_notify_pending", "waiting")
+
+        # The menu runs the picker through @agent_picker, so the socket path's
+        # space (this fixture's) reaches it quoted.
+        client.send(b"\x02>")
+        self.wait_drawn(client, b"Pick an agent pane", "the pane menu offers the picker")
+        rows = self.open_agent_picker(client, offered, target, keys=b"W")
+        self.assertIn(target, [row[0] for row in rows])
+        wait_until(lambda: self.client_view(client) == ("work", target), "the menu's jump")
+
+    def test_prefix_W_is_listed_in_the_palette(self) -> None:
+        """The palette lists the picker under its note."""
+        client = Client(self)
+        self.clients.append(client)
+        offered = self.use_agent_picker()
+        if not (self.root / "picker-bin" / "tmux-command-palette").exists():
+            self.skipTest("tmux-tools' tmux-command-palette is not installed")
+
+        # The palette's stand-in is the same fzf: it cancels with no pick.
+        offered.unlink(missing_ok=True)
+        pathlib.Path(f"{offered}.done").unlink(missing_ok=True)
+        self.tmux("set-environment", "-g", "PICKER_PICK", "")
+        client.send(b"\x1b ")
+        wait_until(offered.exists, "the palette offers the noted bindings")
+        self.close_agent_picker(client, offered)
+        self.assertRegex(
+            offered.read_text(),
+            r"(?m)^Pick an agent pane across sessions +prefix W\tprefix\tW$",
+        )
+
+    def test_prefix_a_in_the_same_session_keeps_a_bystanders_mark(self) -> None:
+        """prefix a selects the pane before its window in the client's session.
+
+        Selecting the window first would make the window's old active pane
+        current, and the select hooks would acknowledge its mark.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+        done = self.tmux(
+            "new-window", "-d", "-t", "focus:", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertRegex(done, r"^%[0-9]+$", "tmux returned no pane id")
+        waiting = self.tmux(
+            "split-window",
+            "-d",
+            "-t",
+            done,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        self.assertRegex(waiting, r"^%[0-9]+$", "tmux returned no pane id")
+        self.tmux("select-pane", "-t", done)
+        self.tmux("set-option", "-p", "-t", done, "@term_notify_pending", "done")
+        self.tmux("set-option", "-p", "-t", waiting, "@term_notify_pending", "waiting")
+        self.assertEqual([waiting, done], self.attention_panes(client))
+        self.press(client, b"a")
+        wait_until(lambda: self.client_view(client) == ("focus", waiting), "prefix a lands")
+        client.pump(0.2)
+        self.assertEqual("done", self.pending(done), "the old active pane keeps its mark")
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences

@@ -153,6 +153,8 @@ interfaces.
   manipulating owned session state directly.
 - `termnav`: Shdeps-managed focus-aware terminal and nested-tmux integration;
   public entry points include `termnav navigate` and `termnav nvim open`.
+- `tmux-agent-picker`: interactive tmux-tools popup (`prefix W`) for a human to
+  pick an agent pane across sessions; not for agents to drive.
 - `tmux-pane`: send text or keys to an exact `%N` pane, read its output, or
   wait for an agent turn or shell prompt; prefer it over raw `send-keys`.
 - `ettun` and `fwdports`: remote transport and forwarding workflows. Inspect
