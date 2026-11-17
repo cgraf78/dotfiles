@@ -1408,29 +1408,45 @@ class LeafStyleTest(unittest.TestCase):
         command again, traced, while this test keeps reading the terminal:
         whether its frame arrives now tells a dropped write from a publisher
         that sends nothing. Termnav writes each frame without blocking, within
-        100 ms that include proving the client owns its terminal, which on
-        hosts without /proc is a ps run, so time that too.
+        a short deadline, after proving the client owns its terminal, which on
+        hosts without /proc is a ps run, so time that too. Every step reports
+        its own failure inline so the caller's message survives.
         """
         frame = re.compile(rb"\x1b\]1337;SetUserVar=TERM_PANE_STATE=([A-Za-z0-9+/=]+)\x07")
         trace = self.root / "publisher-trace"
         started = time.monotonic()
         late = bytearray()
         with trace.open("wb") as stderr:
-            rerun = subprocess.Popen(
-                ["bash", "-x", publisher, "--socket", str(self.socket), "--session", session],
-                env=self.environment,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=stderr,
-            )
-            while rerun.poll() is None and time.monotonic() - started < 10:
-                late.extend(terminal.pump(0.05))
-            if rerun.poll() is None:
-                rerun.kill()
-                rerun.wait()
-                result = "timed out after 10 s"
-            else:
-                result = f"exited {rerun.returncode} in {time.monotonic() - started:.2f} s"
+            try:
+                # Its own session, so the Termnav processes it starts can be
+                # killed with it rather than outliving this test.
+                rerun = subprocess.Popen(
+                    ["bash", "-x", publisher, "--socket", str(self.socket), "--session", session],
+                    env=self.environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=stderr,
+                    start_new_session=True,
+                )
+            except OSError as error:
+                rerun = None
+                result = f"could not start ({error})"
+            if rerun is not None:
+                try:
+                    while rerun.poll() is None and time.monotonic() - started < 10:
+                        late.extend(terminal.pump(0.05))
+                    if rerun.poll() is None:
+                        result = "timed out after 10 s"
+                    else:
+                        result = f"exited {rerun.returncode} in {time.monotonic() - started:.2f} s"
+                finally:
+                    # Finished or not, whatever it left running is in its
+                    # group.
+                    try:
+                        os.killpg(rerun.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+                    rerun.wait()
         late.extend(terminal.pump(0.5))
         arrived = any(
             json.loads(base64.b64decode(match[1])).get(field) == value
@@ -1442,20 +1458,26 @@ class LeafStyleTest(unittest.TestCase):
             if "termnav tmux attention" in line or "status=" in line
         ]
         timings = []
+        ps = ""
         for _ in range(3):
             began = time.monotonic()
-            subprocess.run(
-                ["ps", "-p", str(terminal.pid), "-o", "pgid=", "-o", "tpgid="],
-                capture_output=True,
-                timeout=10,
-                check=False,
-            )
+            try:
+                subprocess.run(
+                    ["ps", "-p", str(terminal.pid), "-o", "pgid=", "-o", "tpgid="],
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+            except FileNotFoundError:
+                ps = "ps unavailable"
+                break
+            except subprocess.TimeoutExpired:
+                ps = "ps timed out after 10 s"
+                break
             timings.append(time.monotonic() - began)
-        return (
-            f"publisher rerun {result}, its frame arrived {arrived}, "
-            f"ps for the client took {max(timings) * 1000:.0f} ms at most, "
-            f"trace {steps[-12:]!r}"
-        )
+        if not ps:
+            ps = f"ps for the client took {max(timings) * 1000:.0f} ms at most"
+        return f"publisher rerun {result}, its frame arrived {arrived}, {ps}, trace {steps[-12:]!r}"
 
     def test_attaching_shows_no_error(self) -> None:
         """A client attach shows no failed command and no config error.
