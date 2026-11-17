@@ -996,7 +996,10 @@ def et_route(lines, host):
 
 
 def ssh_route(path, host):
-    proc = subprocess.run(["ssh", "-G", "-F", path, host], capture_output=True, text=True)
+    # ET never canonicalizes a name, and OpenSSH's canonical pass needs DNS, so
+    # compare against the route OpenSSH computes before that pass.
+    command = ["ssh", "-G", "-F", path, "-o", "CanonicalizeHostname=no", host]
+    proc = subprocess.run(command, capture_output=True, text=True)
     if proc.returncode != 0:
         raise SystemExit(f"ssh -G {host} failed: {proc.stderr.strip()}")
     route = dict.fromkeys(ROUTE_KEYS)

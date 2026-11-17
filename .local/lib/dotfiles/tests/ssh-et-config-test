@@ -95,6 +95,13 @@ _assert_eq 'Match all inherits the previous block' \
 _assert_eq 'Match exec inherits the previous non-matching block' \
   "nas $me " "$(et_route nas)"
 
+# ET never canonicalizes, so the comparison must not depend on DNS: a config
+# that canonicalizes every name still compares its configured route.
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
+  'CanonicalizeFallbackLocal no' 'Host box' '  ProxyJump hop'
+agree box
+_assert_exit 'canonicalization is not part of the comparison' 0 $?
+
 # Keywords and host patterns ignore case.
 config 'HOST NAS' '  PROXYJUMP jump'
 _assert_eq 'keywords and patterns ignore case' "nas $me jump" "$(et_route nas)"
