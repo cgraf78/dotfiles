@@ -702,7 +702,7 @@ if tmux_pane_probe=$(tmux-pane --check-refs /dev/null 2>/dev/null) && [[ $tmux_p
   # option, bracketed ones, one wrapped onto the next line, a bare unknown
   # option, a wrong subcommand and an unlisted exit status, but not a
   # number in prose.
-  tmux_pane_sample=$(mktemp "${TMPDIR:-/tmp}/agent-rules-tmux-pane.XXXXXXXX")
+  tmux_pane_sample=$(_tmpfile)
   cat >"$tmux_pane_sample" <<'EOF'
 Use `tmux-pane send -t %1 --enterr` or `tmux-pane read -t %N [--line N]`,
 `tmux-pane send
@@ -716,11 +716,10 @@ EOF
     '-t %1 --prompt`' >"$tmux_pane_sample"
   _assert_eq 'agent rules: the tmux-pane reference check reads known-good references' '#refs 2' \
     "$(tmux-pane --check-refs "$tmux_pane_sample")"
-  rm -f -- "$tmux_pane_sample"
 elif [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 ]]; then
   _fail 'agent rules: tmux-pane --check-refs runs (tmux-tools is installed in CI)'
 else
-  echo '  SKIP: agent rules: tmux-pane is not installed; its references are unchecked'
+  echo '  SKIP: agent rules: tmux-pane is missing or lacks --check-refs; its references are unchecked'
 fi
 
 _test_summary
