@@ -88,6 +88,13 @@ shared CI sets `CI_TMUX_FLOOR` it must match the floor, and under
 `CI_TMUX_FLOOR_EXACT=1` (the leg that builds the floor release) tmux must be
 exactly that release.
 
+SSH config fragments that Eternal Terminal reads check themselves with
+`_ssh_et_routes_agree` and `_ssh_config_aliases` in `helpers.sh`. ET 7.0
+chooses its own connection's route with a private parser that ignores
+`Match` criteria and treats `ProxyJump none` as a host, so overlay suites
+compare its emulated route with `ssh -G` for every alias.
+`ssh-et-config-test` pins each parser behavior the emulation models.
+
 Emergency rollback: if a broken Dot release reds CI, temporarily set an
 explicit tag instead of resolving latest (`DOT_STACK_DOT_RELEASE_TAG` and
 `DOT_TEST_DOT_RELEASE_TAG` both accept one; the live suite takes a

@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# ssh-et-config-test — the Eternal Terminal SSH config emulation in
+# helpers.sh. Overlay suites use it to prove their SSH fragments give ET the
+# route OpenSSH computes, so each ET parser quirk it models is pinned here
+# against a fixture whose OpenSSH result is known.
+
+# shellcheck disable=SC1091 # dotfiles test helper lives beside this suite.
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+
+command -v ssh >/dev/null || _test_skip_suite 'ssh is not installed'
+command -v python3 >/dev/null || _test_skip_suite 'python3 is not installed'
+
+TEST_TMPDIR=$(_tmpdir)
+me=$(id -un)
+
+# Write the config under test; the fixture is the remaining arguments, one
+# line each.
+config() {
+  printf '%s\n' "$@" >"$TEST_TMPDIR/config"
+}
+
+# ET's route for HOST as "hostname user proxyjump".
+et_route() {
+  local fields
+  fields=$(_ssh_et_routes "$TEST_TMPDIR/config" "$1") || return
+  printf '%s\n' "${fields#*$'\t'}" | tr '\t' ' '
+}
+
+agree() {
+  local status=0
+  AGREE_ERR=$(_ssh_et_routes_agree "$TEST_TMPDIR/config" "$@" 2>&1) || status=$?
+  return "$status"
+}
+
+# The original failure: OpenSSH reads `none` as "no jump", ET as a host.
+config 'Host nas' '  HostName nas.example' '  ProxyJump none'
+_assert_eq 'ProxyJump none is a literal host to ET' \
+  "nas.example $me none" "$(et_route nas)"
+agree nas
+_assert_exit 'ProxyJump none disagrees with OpenSSH' 1 $?
+# shellcheck disable=SC2016 # The backticks are literal report text.
+_assert_contains 'the report explains the none literal' \
+  'proxyjump et=none ssh=(unset) (ET takes `none` as a host name)' "$AGREE_ERR"
+
+# ET's tokenizer ends a keyword at "=", so the guard cannot miss this form.
+config 'Host nas' '  ProxyJump=none'
+_assert_eq 'Key=value syntax is parsed' "nas $me none" "$(et_route nas)"
+config 'Host nas' '  ProxyJump = none'
+_assert_eq 'Key = value syntax is parsed' "nas $me none" "$(et_route nas)"
+
+# Match criteria are ignored: the exec that OpenSSH evaluates false still
+# applies in ET.
+config 'Match host taylor exec "false"' '  ProxyJump none' 'Host taylor' '  ProxyJump nas'
+_assert_eq 'Match host reads as Host and ignores exec' \
+  "taylor $me none" "$(et_route taylor)"
+agree taylor
+_assert_exit 'an exec-gated override disagrees with OpenSSH' 1 $?
+
+# The positive form the overlays use: ET applies it regardless of !exec, and
+# OpenSSH agrees wherever the probe is false.
+config 'Match host taylor,*.lan,!nas.lan !exec "false"' '  ProxyJump nas' \
+  'Host nas' '  HostName nas.example'
+agree taylor box.lan nas.lan
+_assert_exit 'a positive Match route agrees with OpenSSH' 0 $?
+_assert_eq 'the agreement report is empty' '' "$AGREE_ERR"
+_assert_eq 'a negated list entry excludes its host' \
+  "nas.lan $me " "$(et_route nas.lan)"
+_assert_eq 'the wildcard still covers other hosts' \
+  "box.lan $me nas" "$(et_route box.lan)"
+
+# A negated Host token ends the line, whatever follows it.
+config 'Host !taylor taylor' '  User nobody'
+_assert_eq 'a negated Host token wins outright' "taylor $me " "$(et_route taylor)"
+
+# The quoted exec command is one word, so a host name inside it never matches.
+config 'Match host other exec "grep -qx nas"' '  User nobody'
+_assert_eq 'a quoted Match argument is one word' "nas $me " "$(et_route nas)"
+
+# First value wins for every route field, as in OpenSSH.
+config 'Host box' '  HostName first.example' '  User first' '  ProxyJump first' \
+  'Host *' '  HostName second.example' '  User second' '  ProxyJump second'
+_assert_eq 'the first value wins' \
+  'first.example first first' "$(et_route box)"
+
+# Options before the first Host line apply to every destination.
+config '  User global' 'Host box' '  User local'
+_assert_eq 'global options apply before any Host' "box global " "$(et_route box)"
+
+# A Match whose first criterion is not `host` starts no block in ET: its
+# options join whichever block came before.
+config 'Host box' '  HostName box.example' 'Match all' '  User joined' \
+  'Host other' 'Match exec "true"' '  ProxyJump joined'
+_assert_eq 'Match all inherits the previous block' \
+  "box.example joined " "$(et_route box)"
+_assert_eq 'Match exec inherits the previous non-matching block' \
+  "nas $me " "$(et_route nas)"
+
+# ET dials the bare name OpenSSH would search CanonicalDomains for. The
+# check needs no DNS: the unresolvable domain would fail any lookup.
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
+  'CanonicalizeFallbackLocal no' 'Host box' '  ProxyJump hop'
+agree box
+_assert_exit 'a canonicalized name disagrees with ET' 1 $?
+_assert_contains 'the report names the searched domains' \
+  'OpenSSH searches CanonicalDomains invalid for box, but ET dials the bare name' "$AGREE_ERR"
+# `yes` skips the search when a proxy is in effect; `always` does not.
+config 'Host box' '  CanonicalizeHostname yes' '  CanonicalDomains invalid' '  ProxyJump hop'
+agree box
+_assert_exit 'canonicalize yes through a proxy is not searched' 0 $?
+config 'CanonicalizeHostname yes' 'CanonicalDomains invalid' 'Host box'
+agree box
+_assert_exit 'canonicalize yes without a proxy is searched' 1 $?
+# Names with more dots than CanonicalizeMaxDots, and addresses, are dialed
+# as written.
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
+  'CanonicalizeMaxDots 0' 'Host box.example'
+agree box.example
+_assert_exit 'a dotted name past CanonicalizeMaxDots is not searched' 0 $?
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
+  'CanonicalizeMaxDots 3' 'Host box' '  HostName 192.0.2.7'
+agree box
+_assert_exit 'an address HostName is not searched' 0 $?
+# OpenSSH still applies `Match canonical` to an address, without any lookup.
+config 'Host box' '  HostName 192.0.2.7' '  CanonicalizeHostname always' \
+  '  CanonicalDomains invalid' 'Match canonical host 192.0.2.7' '  ProxyCommand nc %h %p'
+agree box
+_assert_exit 'an address still sees Match canonical blocks' 1 $?
+# OpenSSH resolves a name ending in "." at once whenever canonicalization is
+# on, so every ssh -G for it must turn canonicalization off.
+mkdir -p "$TEST_TMPDIR/shim"
+real_ssh=$(command -v ssh)
+# shellcheck disable=SC2016 # The shim, not this suite, expands these.
+printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*" >>"$SSH_SHIM_LOG"' "exec '$real_ssh' \"\$@\"" \
+  >"$TEST_TMPDIR/shim/ssh"
+chmod +x "$TEST_TMPDIR/shim/ssh"
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' 'Host box' '  HostName box.example.'
+: >"$TEST_TMPDIR/ssh.log"
+agree_status=0
+SSH_SHIM_LOG=$TEST_TMPDIR/ssh.log PATH="$TEST_TMPDIR/shim:$PATH" \
+  _ssh_et_routes_agree "$TEST_TMPDIR/config" box >/dev/null 2>&1 || agree_status=$?
+_assert_exit 'a fully qualified HostName is not searched' 0 "$agree_status"
+_assert_eq 'a fully qualified HostName never reaches a canonical pass' '' \
+  "$(grep -v 'CanonicalizeHostname=no' "$TEST_TMPDIR/ssh.log" || true)"
+
+# The rest of any Match line is its own directive, so criteria such as
+# `user` set options instead of filtering.
+config 'Host box' 'Match user nobody'
+_assert_eq 'Match user sets User' "box nobody " "$(et_route box)"
+
+# Only `*` and `?` are special in patterns; brackets are literal.
+config 'Host foo[12]' '  User bracket'
+_assert_eq 'brackets in patterns are literal' "foo1 $me " "$(et_route foo1)"
+
+# An unmatched quote runs to the end of the line as one word.
+config 'Match host other exec "grep -qx nas' '  User nobody'
+_assert_eq 'an unmatched quote is one word' "nas $me " "$(et_route nas)"
+
+# OpenSSH prints HostName lowercased; ET keeps the spelling, which resolves
+# the same.
+config 'Host box' '  HostName Box.Example'
+agree box
+_assert_exit 'HostName case does not split the routes' 0 $?
+
+# Keywords and host patterns ignore case.
+config 'HOST NAS' '  PROXYJUMP jump'
+_assert_eq 'keywords and patterns ignore case' "nas $me jump" "$(et_route nas)"
+
+# ET's connection never uses ProxyCommand, so an OpenSSH route through one
+# cannot agree.
+config 'Host box' '  ProxyCommand nc %h %p'
+agree box
+_assert_exit 'a ProxyCommand route disagrees with OpenSSH' 1 $?
+_assert_contains 'the report explains the ProxyCommand gap' \
+  "which ET's connection cannot follow" "$AGREE_ERR"
+
+# ET resolves the jump alias through the same parser, so a route is only
+# right if the jump host's own route agrees too.
+config 'Host box' '  ProxyJump hop' 'Match host hop exec "false"' '  HostName wrong.example'
+agree box
+_assert_exit 'a disagreeing jump host fails the route' 1 $?
+_assert_contains 'the jump host is named in the report' \
+  'ET route for hop: hostname et=wrong.example ssh=hop' "$AGREE_ERR"
+config 'Host box' '  ProxyJump user@hop:2200' 'Host hop' '  HostName hop.example'
+agree box
+_assert_exit 'a jump with user and port resolves its alias' 0 $?
+
+# ET dials a jump host directly by its HostName, so a jump host reached
+# through its own jump cannot work.
+config 'Host box' '  ProxyJump hop' 'Host hop' '  HostName hop.example' '  ProxyJump bastion'
+agree box
+_assert_exit 'a chained jump host fails' 1 $?
+_assert_contains 'the report explains the chain' 'ET dials a jump host directly and cannot chain' "$AGREE_ERR"
+config 'Host a' '  ProxyJump b' 'Host b' '  ProxyJump a'
+agree a
+_assert_exit 'a jump cycle ends and fails' 1 $?
+
+# ET 7.0 parses one [user@]host[:port] hop and nothing else.
+config 'Host box' '  ProxyJump first,second'
+agree box
+_assert_exit 'a multi-hop ProxyJump fails' 1 $?
+_assert_contains 'the report names the multi-hop value' 'ProxyJump first,second is not a single' "$AGREE_ERR"
+config 'Host box' '  ProxyJump ssh://hop:2200'
+agree box
+_assert_exit 'an ssh:// ProxyJump fails' 1 $?
+
+# OpenSSH prints an address jump in brackets; it is still the same hop.
+config 'Host box' '  ProxyJump 192.0.2.10'
+agree box
+_assert_exit 'an address jump agrees' 0 $?
+
+# ET's ssh names the jump host by its HostName, so settings that exist only
+# under the alias are lost, unless the ProxyJump string carries them.
+config 'Host box' '  ProxyJump hop' 'Host hop' '  HostName hop.example' '  Port 2200'
+agree box
+_assert_exit 'a jump setting only under the alias fails' 1 $?
+_assert_contains 'the report names the lost setting' \
+  "ET jump host hop: ET's ssh names it hop.example, where port is 22 instead of 2200" "$AGREE_ERR"
+config 'Host box' '  ProxyJump hop:2200' 'Host hop' '  HostName hop.example' '  Port 2200'
+agree box
+_assert_exit 'an explicit jump port is carried' 0 $?
+config 'Host box' '  ProxyJump hop' 'Host hop' '  HostName hop.example' \
+  '  IdentityAgent /tmp/agent.sock'
+agree box
+_assert_exit 'any OpenSSH setting only under the jump alias fails' 1 $?
+_assert_contains 'the report names that setting' 'where identityagent is' "$AGREE_ERR"
+# `ssh -G` expands the typed name into ControlPath, which is expected to
+# differ between the alias and its HostName.
+config 'Host box' '  ProxyJump hop' 'Host hop' '  HostName hop.example' \
+  'Host *' '  ControlPath /tmp/cm-%n'
+agree box
+_assert_exit 'a name-derived ControlPath is not a lost setting' 0 $?
+
+# ET always sends a command, which OpenSSH refuses beside a RemoteCommand,
+# on the destination and on the jump host's HostName.
+config 'Host box' '  RemoteCommand tmux attach'
+agree box
+_assert_exit 'a destination RemoteCommand fails' 1 $?
+_assert_contains 'the report names the RemoteCommand' 'RemoteCommand tmux attach' "$AGREE_ERR"
+config 'Host box' '  ProxyJump hop' 'Host hop hop.example' '  HostName hop.example' \
+  '  RemoteCommand tmux attach'
+agree box
+_assert_exit 'a jump host RemoteCommand fails' 1 $?
+
+# Constructs the emulation does not model fail instead of passing.
+config 'Include other.conf'
+agree box
+_assert_exit 'Include is refused' 1 $?
+_assert_contains 'the refusal names Include' 'Include is not emulated' "$AGREE_ERR"
+config 'Host box' '  HostName %h.example'
+agree box
+_assert_exit 'HostName tokens are refused' 1 $?
+config 'Host box' '  User %u'
+agree box
+_assert_exit 'User tokens are refused' 1 $?
+
+agree_status=0
+_ssh_et_routes_agree "$TEST_TMPDIR/missing" box >/dev/null 2>&1 || agree_status=$?
+_assert_exit 'a missing config fails' 1 "$agree_status"
+agree_status=0
+_ssh_et_routes_agree "$TEST_TMPDIR/config" >/dev/null 2>&1 || agree_status=$?
+_assert_exit 'agree requires a host' 1 "$agree_status"
+
+# Alias inventory: literal Host and Match host names, negations unwrapped.
+config 'Host nas nas.lan *.lan te?t' 'Match host taylor,*.web,!nas.web !exec "x"' \
+  'Match canonical host ignored' 'Host phone' '  HostName phone.example'
+_assert_eq 'aliases lists literal Host and Match host names' \
+  "$(printf '%s\n' nas nas.lan nas.web phone taylor)" \
+  "$(_ssh_config_aliases "$TEST_TMPDIR/config")"
+agree_status=0
+_ssh_config_aliases "$TEST_TMPDIR/config" extra >/dev/null 2>&1 || agree_status=$?
+_assert_exit 'aliases takes no hosts' 1 "$agree_status"
+
+_test_summary

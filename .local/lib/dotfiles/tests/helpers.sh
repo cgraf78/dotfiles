@@ -837,6 +837,400 @@ _with_timeout() {
 }
 
 # ---------------------------------------------------------------------------
+# SSH config: Eternal Terminal compatibility
+# ---------------------------------------------------------------------------
+
+# Eternal Terminal 7.0 does not ask OpenSSH where a host lives. Its client
+# reads the SSH config with its own libssh-derived parser and uses the result
+# for its own connection to etserver: the destination's HostName directly, or
+# the jump host's HostName on the jump port. Only the ssh it spawns to start
+# the servers reads the config as OpenSSH does. The parser differs from
+# OpenSSH in ways that silently split the two routes:
+#
+# - `Match` criteria are never evaluated: the rest of the line is re-read as
+#   its own directive. `Match host X exec ...` reads as `Host X ...`, and
+#   `Match user X` sets User; `Match all` and `Match exec ...` start no block,
+#   so their options join the previous one.
+# - `ProxyJump none` names a jump host called "none", so ET dials none:2022.
+# - ProxyCommand never reaches ET's own connection.
+# - A jump host is used only for its HostName and User. ET dials that name
+#   directly and passes `-J user@<HostName>` to ssh, so a jump host's own
+#   ProxyJump, ProxyCommand, or other settings under its alias are lost, and
+#   a multi-hop `ProxyJump a,b` cannot work.
+# - ET never canonicalizes: it dials the bare name OpenSSH would search
+#   CanonicalDomains for.
+# - ET always sends a command, which OpenSSH refuses beside a RemoteCommand.
+#
+# ET's command line can add a jump (`--jumphost`) but never remove one, so a
+# config that ET reads must give it the route OpenSSH computes. These helpers
+# emulate that parser and client (et-v7.0.0 src/terminal/ParseConfigFile.hpp
+# and TerminalClientMain.cpp) for the settings that decide a route. They check
+# one config file in isolation, as `ssh -G -F` does: ET also reads
+# /etc/ssh/ssh_config afterwards, where a matching HostName overrides the
+# user's, which is host-specific and outside what a suite can pin. Constructs
+# the emulation does not model (Include, `%` tokens in HostName or User) fail
+# loudly instead of passing. The Python lives here because overlay suites
+# link only this file from base dotfiles.
+
+# Print the literal host names a config declares, one per line and sorted:
+# every `Host` pattern and `Match host` list entry, negations included without
+# their `!`, wildcards skipped. Suites use it to prove each alias is tested.
+_ssh_config_aliases() {
+  _ssh_config_et aliases "$@"
+}
+
+# Succeed when ET would take the same route as `ssh -G -F CONFIG` for every
+# HOST, and for every jump host those routes name. `ssh -G` runs in the
+# caller's environment, so `Match exec` probes see the caller's PATH shims;
+# ET's result never depends on them. Each disagreement goes to stderr.
+_ssh_et_routes_agree() {
+  _ssh_config_et agree "$@"
+}
+
+# Print ET's route for each HOST as tab-separated `host hostname user
+# proxyjump` (an unset jump is empty).
+_ssh_et_routes() {
+  _ssh_config_et routes "$@"
+}
+
+_ssh_config_et() {
+  python3 - "$@" <<'PY'
+import os
+import pwd
+import re
+import subprocess
+import sys
+
+# Settings ET's parser feeds its own connection.
+ET_KEYS = ("hostname", "user", "proxyjump")
+# ET's ssh names a jump host by its HostName, so every OpenSSH setting must be
+# the same for that name as for the alias, except these: `host` is the name
+# itself, ET passes the user in `-J`, and `ssh -G` expands the name (`%n`)
+# into ControlPath.
+JUMP_IGNORED = {"host", "user", "controlpath"}
+
+
+class Unsupported(Exception):
+    pass
+
+
+def tokens(line):
+    """Split a config line the way ET's ssh_config_get_token does."""
+    words, i, n = [], 0, len(line)
+    while True:
+        while i < n and line[i] in " \t":
+            i += 1
+        if i >= n:
+            return words
+        if line[i] == '"':
+            # A quoted block is one word; an unmatched quote runs to the end.
+            end = line.find('"', i + 1)
+            end = n if end < 0 else end
+            words.append(line[i + 1:end])
+            i = end + 1
+        else:
+            # A bare word ends at whitespace or "=", so `Key=value` splits.
+            end = i
+            while end < n and line[end] not in " \t=":
+                end += 1
+            words.append(line[i:end])
+            i = end
+        while i < n and line[i] in " \t":
+            i += 1
+        if i < n and line[i] == "=":
+            i += 1
+
+
+def glob_match(name, pattern):
+    """ET's match_pattern: only `*` and `?` are special, unlike fnmatch."""
+    regex = "".join(".*" if c == "*" else "." if c == "?" else re.escape(c) for c in pattern)
+    return re.fullmatch(regex, name, re.S) is not None
+
+
+def pattern_list(name, word):
+    """ET's match_pattern_list: 1 match, 0 none, -1 a negation matched."""
+    result = 0
+    for pattern in word.lower().split(","):
+        negated = pattern.startswith("!")
+        if negated:
+            pattern = pattern[1:]
+        if pattern and glob_match(name, pattern):
+            if negated:
+                return -1
+            result = 1
+    return result
+
+
+class Reader:
+    """One parse_ssh_config_file pass for one destination alias."""
+
+    def __init__(self, host):
+        self.host = host.lower()
+        self.parsing = True
+        self.seen = set()
+        self.route = {"hostname": host, "user": None, "proxyjump": None}
+
+    def line(self, number, words):
+        """Apply one tokenized line, as ssh_config_parse_line does."""
+        if not words or words[0].startswith("#"):
+            return
+        key, args = words[0].lower(), words[1:]
+        if key == "match":
+            # The rest of the line is parsed as a fresh directive.
+            self.line(number, args)
+        elif key == "include":
+            raise Unsupported(f"line {number}: Include is not emulated")
+        elif key == "host":
+            self.parsing = False
+            for word in args:
+                matched = pattern_list(self.host, word)
+                if matched < 0:
+                    self.parsing = False
+                    break
+                if matched > 0:
+                    self.parsing = True
+        elif self.parsing and key in ET_KEYS and key not in self.seen:
+            # First value wins: ET skips an option once a matching block set it.
+            self.seen.add(key)
+            if not args:
+                return
+            if key in ("hostname", "user") and "%" in args[0]:
+                raise Unsupported(f"line {number}: % tokens in {key} are not emulated")
+            self.route[key] = args[0]
+
+
+def read_lines(path):
+    """Tokenize every line of a config file."""
+    try:
+        with open(path) as config_file:
+            return [tokens(line.rstrip()) for line in config_file]
+    except OSError as error:
+        raise SystemExit(f"cannot read SSH config {path}: {error.strerror}")
+
+
+def et_route(lines, host):
+    """ET's HostName, User and ProxyJump for an alias, with ET's defaults."""
+    reader = Reader(host)
+    for number, words in enumerate(lines, 1):
+        reader.line(number, words)
+    route = reader.route
+    if route["user"] is None:
+        route["user"] = pwd.getpwuid(os.getuid()).pw_name
+    return route
+
+
+def ssh_settings(path, host, *overrides):
+    """Every setting `ssh -G` prints for host, as key -> list of values."""
+    command = ["ssh", "-G", "-F", path]
+    for override in overrides:
+        command += ["-o", override]
+    command.append(host)
+    proc = subprocess.run(command, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f"ssh -G {host} failed: {proc.stderr.strip()}")
+    settings = {}
+    for output in proc.stdout.splitlines():
+        key, _, value = output.partition(" ")
+        if value != "none":
+            settings.setdefault(key, []).append(value)
+    return settings
+
+
+def ssh_route(path, host):
+    """OpenSSH's route before canonicalization, plus the domains it would
+    search for the name, without any DNS lookup.
+
+    The pass with canonicalization off gives the route and the configured
+    domains. A name ending in "." is fully qualified: OpenSSH never searches
+    domains for it, but resolves it at once whenever canonicalization is on,
+    so it gets no second pass. Otherwise clearing CanonicalDomains stops the
+    canonical pass while `ssh -G` still prints the configured mode, and
+    allowing the local fallback keeps that empty search from failing; an
+    address needs no lookup there and still sees `Match canonical` blocks.
+    """
+    configured = ssh_settings(path, host, "CanonicalizeHostname=no")
+    name = first(configured, "hostname") or host
+    if name.endswith("."):
+        return configured
+    settings = ssh_settings(path, host, "CanonicalDomains=none", "CanonicalizeFallbackLocal=yes")
+    mode = first(settings, "canonicalizehostname")
+    proxied = first(settings, "proxyjump") or first(settings, "proxycommand")
+    searched = mode == "always" or (mode in ("true", "yes") and not proxied)
+    domains = " ".join(configured.get("canonicaldomains", []))
+    max_dots = int(first(configured, "canonicalizemaxdots") or "1")
+    if searched and domains and not is_address(name) and name.count(".") <= max_dots:
+        settings["canonical-search"] = [domains]
+    return settings
+
+
+def is_address(name):
+    return re.fullmatch(r"[0-9.]+|\[?[0-9a-fA-F:.]*:[0-9a-fA-F:.]*\]?", name) is not None
+
+
+def first(settings, key):
+    values = settings.get(key)
+    return values[0] if values else None
+
+
+def parse_hop(value):
+    """Split a jump `[user@]host[:port]` into its parts, brackets removed."""
+    user, _, hostport = value.rpartition("@")
+    if hostport.startswith("["):
+        host, _, rest = hostport[1:].partition("]")
+        port = rest[1:] if rest.startswith(":") else ""
+    elif hostport.count(":") == 1:
+        host, _, port = hostport.partition(":")
+    else:
+        host, port = hostport, ""
+    return user, host, port
+
+
+def describe(value):
+    return value if value else "(unset)"
+
+
+class Checker:
+    """Compare ET's and OpenSSH's routes, reporting each disagreement."""
+
+    def __init__(self, path):
+        self.path = path
+        self.lines = read_lines(path)
+        self.failed = False
+
+    def report(self, message):
+        self.failed = True
+        print(message, file=sys.stderr)
+
+    def destination(self, host):
+        """Check `et host`; return the jump alias ET dials, if any."""
+        et = et_route(self.lines, host)
+        ssh = ssh_route(self.path, host)
+        if first(ssh, "canonical-search"):
+            self.report(f"ET route for {host}: OpenSSH searches CanonicalDomains "
+                        f"{first(ssh, 'canonical-search')} for "
+                        f"{first(ssh, 'hostname')}, but ET dials the bare name")
+        if first(ssh, "remotecommand"):
+            self.report(f"ET route for {host}: OpenSSH has RemoteCommand "
+                        f"{first(ssh, 'remotecommand')}, which refuses ET's command")
+        if et["hostname"].lower() != (first(ssh, "hostname") or "").lower():
+            self.report(f"ET route for {host}: hostname et={et['hostname']} "
+                        f"ssh={describe(first(ssh, 'hostname'))}")
+        if et["user"] != first(ssh, "user"):
+            self.report(f"ET route for {host}: user et={et['user']} "
+                        f"ssh={describe(first(ssh, 'user'))}")
+        if first(ssh, "proxycommand"):
+            self.report(f"ET route for {host}: OpenSSH uses ProxyCommand "
+                        f"{first(ssh, 'proxycommand')}, which ET's connection cannot follow")
+        et_jump, ssh_jump = et["proxyjump"], first(ssh, "proxyjump")
+        if et_jump == "none":
+            self.report(f"ET route for {host}: proxyjump et=none ssh={describe(ssh_jump)} "
+                        "(ET takes `none` as a host name)")
+            return None
+        if not et_jump and not ssh_jump:
+            return None
+        if not et_jump or not ssh_jump:
+            self.report(f"ET route for {host}: proxyjump et={describe(et_jump)} "
+                        f"ssh={describe(ssh_jump)}")
+            return None
+        if "," in et_jump or "://" in et_jump:
+            self.report(f"ET route for {host}: ProxyJump {et_jump} is not a single "
+                        "[user@]host[:port] hop, which is all ET 7.0 can use")
+            return None
+        if parse_hop(et_jump) != parse_hop(ssh_jump):
+            self.report(f"ET route for {host}: proxyjump et={et_jump} ssh={ssh_jump}")
+            return None
+        return et_jump
+
+    def jump(self, hop):
+        """Check the jump host ET dials for a `ProxyJump hop` route."""
+        user, alias, port = parse_hop(hop)
+        target = et_route(self.lines, alias)["hostname"]
+        by_alias = ssh_route(self.path, alias)
+        if first(by_alias, "proxyjump") or first(by_alias, "proxycommand"):
+            self.report(f"ET jump host {alias}: OpenSSH reaches it through "
+                        f"{first(by_alias, 'proxyjump') or first(by_alias, 'proxycommand')}, "
+                        "but ET dials a jump host directly and cannot chain")
+        by_name = by_alias if target.lower() == alias.lower() else ssh_route(self.path, target)
+        if first(by_name, "remotecommand"):
+            self.report(f"ET jump host {alias}: OpenSSH has RemoteCommand "
+                        f"{first(by_name, 'remotecommand')} for {target}, which refuses "
+                        "ET's command")
+        ignored = JUMP_IGNORED | ({"port"} if port else set())
+        for key in sorted((set(by_alias) | set(by_name)) - ignored):
+            if by_alias.get(key) != by_name.get(key):
+                self.report(f"ET jump host {alias}: ET's ssh names it {target}, where "
+                            f"{key} is {describe(' '.join(by_name.get(key, [])))} "
+                            f"instead of {describe(' '.join(by_alias.get(key, [])))}")
+
+
+def agree(path, hosts):
+    checker = Checker(path)
+    queue, checked, jumps = list(hosts), set(), set()
+    try:
+        while queue:
+            host = queue.pop(0)
+            if host in checked:
+                continue
+            checked.add(host)
+            hop = checker.destination(host)
+            if hop and hop not in jumps:
+                jumps.add(hop)
+                checker.jump(hop)
+                # `et <jump host>` must work on its own as well.
+                queue.append(parse_hop(hop)[1])
+    except Unsupported as error:
+        raise SystemExit(f"{path}: {error}")
+    return 1 if checker.failed else 0
+
+
+def aliases(path):
+    names = set()
+    for words in read_lines(path):
+        if not words:
+            continue
+        key = words[0].lower()
+        if key == "host":
+            lists = words[1:]
+        elif key == "match" and len(words) > 2 and words[1].lower() == "host":
+            lists = [words[2]]
+        else:
+            continue
+        for word in lists:
+            for name in word.split(","):
+                name = name[1:] if name.startswith("!") else name
+                if name and not any(char in name for char in "*?"):
+                    names.add(name)
+    for name in sorted(names):
+        print(name)
+    return 0
+
+
+def main(argv):
+    usage = "usage: _ssh_config_et {aliases CONFIG | agree CONFIG HOST... | routes CONFIG HOST...}"
+    if len(argv) < 2 or argv[0] not in ("aliases", "agree", "routes"):
+        raise SystemExit(usage)
+    mode, path, hosts = argv[0], argv[1], argv[2:]
+    if (mode == "aliases") != (not hosts):
+        raise SystemExit(usage)
+    if mode == "aliases":
+        return aliases(path)
+    if mode == "agree":
+        return agree(path, hosts)
+    lines = read_lines(path)
+    for host in hosts:
+        try:
+            route = et_route(lines, host)
+        except Unsupported as error:
+            raise SystemExit(f"{path}: {error}")
+        print("\t".join([host] + [route[key] or "" for key in ET_KEYS]))
+    return 0
+
+
+sys.exit(main(sys.argv[1:]))
+PY
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
