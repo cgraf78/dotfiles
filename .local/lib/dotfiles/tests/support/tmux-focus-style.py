@@ -187,6 +187,20 @@ class Client:
             f"expected {expected}, got {last_background}; {last_render!r}"
         )
 
+    def settle(self, quiet: float = 0.2, timeout: float = 4.0) -> None:
+        """Read this terminal until tmux has stopped writing to it."""
+        deadline = time.monotonic() + timeout
+        last = time.monotonic()
+        while time.monotonic() < deadline:
+            if select.select([self.master], [], [], 0.02)[0]:
+                payload = os.read(self.master, 65536)
+                if b"\x1b[?996n" in payload:
+                    os.write(self.master, b"\x1b[?997;1n")
+                last = time.monotonic()
+            elif time.monotonic() - last >= quiet:
+                return
+        raise AssertionError("timed out waiting for the terminal to settle")
+
     def resize(self, rows: int, columns: int) -> None:
         """Change the terminal size; the kernel signals tmux as a terminal would."""
         set_terminal_size(self.master, rows, columns)
@@ -2846,6 +2860,12 @@ class LeafStyleTest(unittest.TestCase):
         window = self.window_size()
         # In real use the terminal that breaks is not the one being typed in.
         self.make_most_active(healthy)
+        # The old client has gone unread since its first render. A terminal
+        # whose output is backed up can catch up in the same server loop as
+        # its resize, and tmux then draws it at the bad size before the
+        # guard's second step: catch it up first, as a terminal being read
+        # would be.
+        victim.settle()
         victim.resize(43690, 43690)
         self.assert_refused(victim, healthy, window)
 
