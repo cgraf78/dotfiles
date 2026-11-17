@@ -409,8 +409,9 @@ and spliced into the mouse, Option-mouse and keyboard bindings, which differ
 only in position. Over a word and a line the pane menu is 22 rows, one spare
 within the 23 above an 80x24 terminal's status line, so it still opens above
 the pointer near the bottom of the terminal. `tests/tmux-test` counts it, and
-the pane and attention items share one group to keep it that short. Items reuse the key bindings' own
-commands where they can. tmux leaves mouse bindings out of `prefix ?`.
+the pane and attention items share one group to keep it that short. Items
+reuse the key bindings' own commands where they can. tmux leaves mouse
+bindings out of `prefix ?`.
 
 ## Key Handling
 

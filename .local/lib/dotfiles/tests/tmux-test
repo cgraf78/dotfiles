@@ -436,12 +436,16 @@ floor_minor=${tmux_floor#*.}
 tmux_vectors='1.8:1.8 2.9a:2.9 next-2.9:2.9 3.0:3.0 3.1c:3.1 3.2:3.2
 3.2a:3.2 3.2-rc3:3.2 next-3.2:3.2 next-3.2-rc:3.2 3.3:3.3 3.3a:3.3 3.3-rc:3.3
 next-3.3:3.3 3.4:3.4 3.10:3.10 next-3.10:3.10 master:newest
-openbsd-7.6:newest openbsd-7.6-current:newest 3.x:unknown 3.:unknown :unknown'
+openbsd-7.6:newest openbsd-7.6-current:newest 3.x:unknown 3.:unknown foo-2.9:unknown :unknown'
 if [[ $floor_major =~ ^[0-9]+$ && $floor_minor =~ ^[0-9]+$ ]] && ((floor_minor > 0)); then
   below=$floor_major.$((floor_minor - 1))
   above=$floor_major.$((floor_minor + 1))
   tmux_vectors+=" $below:$below ${below}a:$below $below-rc:$below"
   tmux_vectors+=" next-$below:$below $tmux_floor:$tmux_floor $above:$above"
+  # The next major's first release, which a comparison of the minor alone
+  # would refuse.
+  next_major=$((floor_major + 1)).0
+  tmux_vectors+=" $next_major:$next_major"
 else
   _fail "tmux: the floor-edge rows cannot express the floor '$tmux_floor'"
 fi
@@ -506,8 +510,38 @@ for doc in .config/tmux/README.md .github/README.md; do
   _assert_contains "tmux: $doc states the floor" "tmux $tmux_floor or newer" \
     "$(tr '\n' ' ' <"$source_home/$doc")"
 done
-_assert_contains 'tmux: the refusal names the floor' \
-  "This tmux config needs tmux $tmux_floor or newer" "$(<"$tmux_config")"
+# Both refusal messages, the status line and the attach hook, name it.
+_assert_eq 'tmux: both refusal messages name the floor' 2 \
+  "$(grep -c "This tmux config needs tmux $tmux_floor or newer; this is #{version}" "$tmux_config")"
+_assert_eq 'tmux: the refusal names no other floor' 2 \
+  "$(grep -c 'This tmux config needs tmux ' "$tmux_config")"
+
+# _test_require_tmux, against a stand-in tmux reporting STUB_TMUX: print its
+# return status and the pass and fail counts it added, as "rc pass fail".
+require_stub=$(_tmpdir)
+# shellcheck disable=SC2016 # The stub expands STUB_TMUX when it runs.
+printf '%s\n' '#!/bin/sh' 'echo "tmux $STUB_TMUX"' >"$require_stub/tmux"
+chmod +x "$require_stub/tmux"
+require_probe() {
+  (
+    PATH="$require_stub:$PATH" PASS=0 FAIL=0
+    _test_require_tmux 'require probe' >/dev/null 2>&1
+    echo "$? $PASS $FAIL"
+  )
+}
+require_older=$floor_major.$((floor_minor - 1))a
+_assert_eq 'tmux: an older tmux fails under DOT_TEST_REQUIRE_TMUX=1' '1 0 1' \
+  "$(STUB_TMUX=$require_older DOT_TEST_REQUIRE_TMUX=1 CI_TMUX_FLOOR='' require_probe)"
+_assert_eq 'tmux: an older tmux is a skip otherwise' '1 1 0' \
+  "$(STUB_TMUX=$require_older DOT_TEST_REQUIRE_TMUX=0 CI_TMUX_FLOOR='' require_probe)"
+_assert_eq 'tmux: the floor itself is usable' '0 0 0' \
+  "$(STUB_TMUX=${tmux_floor}a DOT_TEST_REQUIRE_TMUX=1 CI_TMUX_FLOOR='' require_probe)"
+_assert_eq 'tmux: a CI floor that differs from the marker fails' '1 0 1' \
+  "$(STUB_TMUX=${tmux_floor}a CI_TMUX_FLOOR=$above CI_TMUX_FLOOR_EXACT='' require_probe)"
+_assert_eq 'tmux: CI_TMUX_FLOOR_EXACT=1 fails on another release' '1 0 1' \
+  "$(STUB_TMUX=$above CI_TMUX_FLOOR=${tmux_floor}a CI_TMUX_FLOOR_EXACT=1 require_probe)"
+_assert_eq 'tmux: CI_TMUX_FLOOR_EXACT=1 passes on that release' '0 0 0' \
+  "$(STUB_TMUX=${tmux_floor}a CI_TMUX_FLOOR=${tmux_floor}a CI_TMUX_FLOOR_EXACT=1 require_probe)"
 
 # Nothing names a tmux older than the floor: each file's lines are read with
 # comment and roff markers removed and joined, so a mention wrapped across
@@ -569,9 +603,12 @@ while IFS= read -r -d '' path; do
     done
     $allowed || tmux_offenders+="$relative: $mention"$'\n'
   done < <(tmux_old_mentions "$path")
-done < <(find "$source_home/.config/tmux" "$source_home/.local/bin" \
-  "$source_home/.local/lib/dotfiles/tests" \( -name '.*' -o -name __pycache__ \) \
-  -prune -o -type f -print0)
+done < <(
+  find "$source_home/.config/tmux" "$source_home/.local/bin" \
+    "$source_home/.local/lib/dotfiles/tests" \( -name '.*' -o -name __pycache__ \) \
+    -prune -o -type f -print0
+  printf '%s\0' "$source_home/.github/README.md"
+)
 _assert_eq 'tmux: nothing names a tmux older than the floor' '' "$tmux_offenders"
 
 tmux_usable=false
