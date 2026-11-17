@@ -672,4 +672,54 @@ EOF
   fi
 fi
 
+# Rules and playbooks that name tmux-tools' tmux-pane must name its real
+# subcommands, options and exit statuses, so a renamed or removed one fails
+# here instead of leaving agents a broken recipe. The scanner is tmux-pane's
+# own `--check-refs` (tmux-pane(1), INTERFACE LIST), the one copy its repo's
+# doc tests use too; it ends with "#refs N", the references it read, so a
+# scan that reads nothing fails loudly. CI installs tmux-tools
+# (with-relay-deps sets DOT_TEST_REQUIRE_TERMNAV=1), so this cannot skip there.
+tmux_pane_refs() { # tmux_pane_refs FILE...: bad references; fails loudly
+  local out
+  out=$(tmux-pane --check-refs "$@" 2>&1) || out="checker failed: $out"
+  case $out in *'#refs '[0-9]*) ;; *) out="checker failed${out:+: $out}" ;; esac
+  printf '%s\n' "$out" | grep -v '^#refs '
+}
+if tmux_pane_probe=$(tmux-pane --check-refs /dev/null 2>/dev/null) && [[ $tmux_pane_probe == '#refs 0' ]]; then
+  tmux_pane_docs=()
+  while IFS= read -r tmux_pane_doc; do
+    tmux_pane_docs+=("$tmux_pane_doc")
+  done < <(grep -rlF 'tmux-pane' "$RULE_FAMILY" "$PLAYBOOK_FAMILY" \
+    "$source_home/.config/tmux/README.md" 2>/dev/null | LC_ALL=C sort)
+  if ((${#tmux_pane_docs[@]} == 0)); then
+    _fail 'agent rules: some rule or playbook names tmux-pane'
+  else
+    # One call, so another command's options are known as theirs.
+    _assert_eq 'agent rules: tmux-pane references name real subcommands, options and exits' '' \
+      "$(tmux_pane_refs "${tmux_pane_docs[@]}" | LC_ALL=C sort -u | tr '\n' ';')"
+  fi
+  # The installed checker catches what these rules need caught: a wrong
+  # option, bracketed ones, one wrapped onto the next line, a bare unknown
+  # option, a wrong subcommand and an unlisted exit status, but not a
+  # number in prose.
+  tmux_pane_sample=$(_tmpfile)
+  cat >"$tmux_pane_sample" <<'EOF'
+Use `tmux-pane send -t %1 --enterr` or `tmux-pane read -t %N [--line N]`,
+`tmux-pane send
+-t %1 --wrapped`; keep `--bogus` low, `tmux-pane nope -t %1`. It exits 99;
+after 5 retries, or after 68, it is fine.
+EOF
+  _assert_eq 'agent rules: the tmux-pane reference check flags bad references' \
+    'exit 99;option --bogus;read --line;send --enterr;send --wrapped;subcommand nope;' \
+    "$(tmux_pane_refs "$tmux_pane_sample" | LC_ALL=C sort -u | tr '\n' ';')"
+  printf '%s\n' 'use `tmux-pane send -t %1 '"'"'a -b'"'"' --enter` and `tmux-pane wait' \
+    '-t %1 --prompt`' >"$tmux_pane_sample"
+  _assert_eq 'agent rules: the tmux-pane reference check reads known-good references' '#refs 2' \
+    "$(tmux-pane --check-refs "$tmux_pane_sample")"
+elif [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 ]]; then
+  _fail 'agent rules: tmux-pane --check-refs runs (tmux-tools is installed in CI)'
+else
+  echo '  SKIP: agent rules: tmux-pane is missing or lacks --check-refs; its references are unchecked'
+fi
+
 _test_summary

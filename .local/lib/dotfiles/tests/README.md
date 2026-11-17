@@ -76,6 +76,10 @@ binaries for every platform leg. The Termux leg installs both through `dot
 update` but does not require the relay: Termnav ships no Android x86_64
 binary for the CI emulator.
 
+The same flag makes agent-rules-test fail instead of skipping when
+tmux-tools' `tmux-pane` is missing: it checks every `tmux-pane` reference in
+the rules and playbooks against `tmux-pane --interface`.
+
 Emergency rollback: if a broken Dot release reds CI, temporarily set an
 explicit tag instead of resolving latest (`DOT_STACK_DOT_RELEASE_TAG` and
 `DOT_TEST_DOT_RELEASE_TAG` both accept one; the live suite takes a
