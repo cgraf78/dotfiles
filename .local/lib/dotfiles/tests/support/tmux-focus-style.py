@@ -2991,8 +2991,14 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(drawn, description)
 
     def tmux_at_least(self, major: int, minor: int) -> bool:
-        match = re.search(r"(\d+)\.(\d+)", self.tmux("-V").stdout)
-        return match is not None and (int(match[1]), int(match[2])) >= (major, minor)
+        """Compare this tmux's version; a build from git ("tmux master") is newest."""
+        version = self.tmux("-V").stdout
+        match = re.search(r"(\d+)\.(\d+)", version)
+        if match is None:
+            if "master" in version:
+                return True
+            raise AssertionError(f"unrecognised tmux version {version!r}")
+        return (int(match[1]), int(match[2])) >= (major, minor)
 
     def right_click(
         self, client: Client, x: int, y: int, *, meta: bool = False, opens: bytes = b""
@@ -3467,6 +3473,361 @@ class LeafStyleTest(unittest.TestCase):
             quiet_received.exists() and b"\x1b " in quiet_received.read_bytes(),
             "the wrapped program without mouse reporting gets no Option-Space",
         )
+
+    def picker_paths(self) -> tuple[str, str]:
+        """Return the server's PATH, and that PATH without tmux-agent-picker.
+
+        Dropping the helper's directory may drop this tmux with it (both
+        install into ~/.local/bin), so the same tmux stays first.
+        """
+        path = self.tmux("show-environment", "-g", "PATH", check=False).stdout.strip()
+        base_path = path.partition("=")[2] if path.startswith("PATH=") else os.environ["PATH"]
+        same_tmux = self.root / "picker-tmux-bin"
+        if not same_tmux.exists():
+            same_tmux.mkdir()
+            (same_tmux / "tmux").symlink_to(shutil.which("tmux") or "tmux")
+        without_helper = ":".join(
+            [str(same_tmux)]
+            + [
+                d
+                for d in base_path.split(":")
+                if d and not (pathlib.Path(d) / "tmux-agent-picker").exists()
+            ]
+        )
+        return base_path, without_helper
+
+    def use_agent_picker(self) -> pathlib.Path:
+        """Serve the picker from tmux-tools with a stand-in fzf on the server.
+
+        Skips when tmux-tools' tmux-agent-picker is not installed. The
+        stand-in, which the palette uses too, records the rows it is offered
+        in the returned file, waits while $PICKER_HOLD names a missing file,
+        then prints the first row containing $PICKER_PICK, or exits 130
+        (fzf's cancel) when that is empty. It touches FILE.done as it exits.
+        tmux-tools' palette, found on the same original PATH, is linked
+        beside the picker when installed, since dropping the picker's
+        directory drops the palette too.
+        """
+        base_path, without_helper = self.picker_paths()
+        helper = shutil.which("tmux-agent-picker", path=base_path)
+        if helper is None:
+            self.skipTest("tmux-tools' tmux-agent-picker is not installed")
+        stub = self.root / "picker-bin"
+        stub.mkdir()
+        (stub / "tmux-agent-picker").symlink_to(helper)
+        palette = shutil.which("tmux-command-palette", path=base_path)
+        if palette is not None:
+            (stub / "tmux-command-palette").symlink_to(palette)
+        offered = self.root / "picker-offered"
+        fzf = stub / "fzf"
+        fzf.write_text(
+            "#!/bin/sh\n"
+            f"cat >'{offered}.tmp' && mv '{offered}.tmp' '{offered}'\n"
+            '[ -z "$PICKER_HOLD" ] || while [ ! -e "$PICKER_HOLD" ]; do sleep 0.05; done\n'
+            f"trap ': >\"{offered}.done\"' EXIT\n"
+            '[ -n "$PICKER_PICK" ] || exit 130\n'
+            f"grep -F -m 1 -- \"$PICKER_PICK\" '{offered}'\n"
+        )
+        fzf.chmod(0o755)
+        self.tmux("set-environment", "-g", "PATH", f"{stub}:{without_helper}")
+        self.tmux("set-environment", "-g", "PICKER_HOLD", "")
+        return offered
+
+    def open_agent_picker(
+        self,
+        client: Client,
+        offered: pathlib.Path,
+        pick: str,
+        keys: bytes = b"\x02W",
+        hold: pathlib.Path | None = None,
+    ) -> list[list[str]]:
+        """Send KEYS, wait for the picker's popup, and return its rows' fields.
+
+        PICK is a pane id (its row is chosen) or empty (the popup is
+        cancelled). With HOLD the stand-in waits until that file exists.
+        """
+        offered.unlink(missing_ok=True)
+        pathlib.Path(f"{offered}.done").unlink(missing_ok=True)
+        self.tmux("set-environment", "-g", "PICKER_PICK", f"{pick}\t" if pick else "")
+        self.tmux("set-environment", "-g", "PICKER_HOLD", str(hold) if hold else "")
+        client.send(keys)
+        wait_until(offered.exists, "the picker offers its rows")
+        return [row.split("\t") for row in offered.read_text().splitlines()]
+
+    def close_agent_picker(self, client: Client, offered: pathlib.Path) -> None:
+        """Wait until the stand-in fzf has exited and the popup has closed."""
+        wait_until(pathlib.Path(f"{offered}.done").exists, "the picker's fzf exits")
+        client.pump(0.3)
+
+    def picker_levels(self, rows: list[list[str]], *colors: int) -> list[str]:
+        """Pane ids of the rows whose dot has one of the ANSI COLORS."""
+        dots = tuple(f"\x1b[{color}m●" for color in colors)
+        return [row[0] for row in rows if row[3].startswith(dots)]
+
+    def test_prefix_W_picks_an_agent_pane_across_sessions(self) -> None:
+        """prefix W lists marked and agent panes everywhere and jumps there.
+
+        Every jump names the pane in each command, so no bystander pane is
+        made current on the way and acknowledged by the select hooks.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+        base_path, without_helper = self.picker_paths()
+        self.tmux("set-environment", "-g", "PATH", without_helper)
+        self.press(client, b"W")
+        wait_until(
+            lambda: (
+                "needs tmux-agent-picker" in self.tmux("show-messages", "-t", client.tty).stdout
+            ),
+            "prefix W without the helper says what it needs",
+        )
+        self.tmux("set-environment", "-g", "PATH", base_path)
+        offered = self.use_agent_picker()
+
+        # The client's own session has a background window whose active pane
+        # is done and whose other pane, an agent, is waiting.
+        own_done = self.tmux(
+            "new-window", "-d", "-t", "focus:", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertRegex(own_done, r"^%[0-9]+$", "tmux returned no pane id")
+        own_waiting = self.tmux(
+            "split-window",
+            "-d",
+            "-t",
+            own_done,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        self.assertRegex(own_waiting, r"^%[0-9]+$", "tmux returned no pane id")
+        # Another session's current pane is done: a bystander for a jump to
+        # its other panes.
+        bystander = self.new_session("other")
+        other_done = self.tmux(
+            "split-window", "-d", "-t", bystander, "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        other_waiting = self.tmux(
+            "split-window",
+            "-d",
+            "-t",
+            bystander,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        for pane in (other_done, other_waiting):
+            self.assertRegex(pane, r"^%[0-9]+$", "tmux returned no pane id")
+        # A glob-named session with a grouped peer, and an idle agent.
+        grouped = self.new_session("w[1]", "codex")
+        self.tmux("new-session", "-d", "-t", "w[1]", "-s", "w[1]-peer")
+        idle = self.new_session("idle", "codex")
+        for pane, kind in (
+            (own_done, "done"),
+            (own_waiting, "waiting"),
+            (bystander, "done"),
+            (other_done, "done"),
+            (other_waiting, "waiting"),
+            (grouped, "waiting"),
+        ):
+            self.tmux("set-option", "-p", "-t", pane, "@term_notify_pending", kind)
+        wait_until(
+            lambda: self.show(idle, "#{pane_current_command}") == "codex",
+            "the idle agent runs as codex",
+        )
+
+        # The red, yellow and green rows are prefix a's list, in its order.
+        # Opening the popup acknowledges the current pane on tmux 3.6, so
+        # read the list while the popup is open.
+        release = self.root / "picker-release"
+        rows = self.open_agent_picker(client, offered, "", hold=release)
+        attention = self.attention_panes(client)
+        release.touch()
+        self.close_agent_picker(client, offered)
+        self.assertEqual(attention, self.picker_levels(rows, 31, 33, 32))
+        self.assertEqual(idle, rows[-1][0], "the idle agent comes last")
+        self.assertTrue(rows[-1][3].startswith("\x1b[90m○"), rows[-1])
+
+        # A done pane in another session: the client lands there and it is
+        # acknowledged, while that session's previous current pane keeps
+        # its mark.
+        self.open_agent_picker(client, offered, other_done)
+        wait_until(lambda: self.client_view(client) == ("other", other_done), "the jump to other")
+        wait_until(lambda: self.pending(other_done) == "", "arrival acknowledges the done pane")
+        self.assertEqual("done", self.pending(bystander), "the bystander keeps its mark")
+
+        # A waiting agent keeps its mark through the visit.
+        self.open_agent_picker(client, offered, other_waiting)
+        wait_until(
+            lambda: self.client_view(client) == ("other", other_waiting), "the jump to waiting"
+        )
+        self.assertEqual("waiting", self.pending(other_waiting))
+
+        # A grouped peer: with another client in w[1], this client lands in
+        # w[1]-peer, and the other client's session and window stay.
+        theirs = Client(self, "w[1]")
+        self.clients.append(theirs)
+        # Attaching may print into the pane (the context hook without
+        # termnav), which would leave it in view mode.
+        if self.show(grouped, "#{pane_in_mode}") != "0":
+            self.tmux("send-keys", "-X", "-t", grouped, "cancel")
+        their_view = (self.client_view(theirs)[0], self.client_format(theirs, "#{window_id}"))
+        self.open_agent_picker(client, offered, grouped)
+        wait_until(
+            lambda: self.client_view(client) == ("w[1]-peer", grouped), "the jump to the peer"
+        )
+        self.assertEqual(
+            their_view, (self.client_view(theirs)[0], self.client_format(theirs, "#{window_id}"))
+        )
+
+        # Esc moves nothing and leaves other panes' marks. From tmux 3.6 the
+        # popup's focus change acknowledges the current pane: done and its
+        # exit status clear, waiting stays. tmux tracks pane focus across
+        # clients, so the other client, which also shows that pane, leaves.
+        theirs.close()
+        self.clients.remove(theirs)
+        wait_until(
+            lambda: len(self.tmux("list-clients", "-F", "#{client_tty}").stdout.split()) == 1,
+            "the other client detaches",
+        )
+        marks = {pane: self.pending(pane) for pane in (own_done, own_waiting, bystander)}
+        view = self.client_view(client)
+        self.open_agent_picker(client, offered, "")
+        self.close_agent_picker(client, offered)
+        self.assertEqual(view, self.client_view(client))
+        self.assertEqual("waiting", self.pending(grouped))
+        self.tmux("set-option", "-p", "-t", grouped, "@term_notify_pending", "done")
+        self.tmux("set-option", "-p", "-t", grouped, "@term_notify_exit_status", "3")
+        self.open_agent_picker(client, offered, "")
+        self.close_agent_picker(client, offered)
+        self.assertEqual(marks, {pane: self.pending(pane) for pane in marks})
+        if self.tmux_at_least(3, 6):
+            wait_until(lambda: self.pending(grouped) == "", "the popup acknowledges the pane")
+            self.assertEqual(
+                "",
+                self.tmux(
+                    "show-options", "-pqv", "-t", grouped, "@term_notify_exit_status"
+                ).stdout.strip(),
+            )
+        else:
+            self.assertEqual("done", self.pending(grouped), "older tmux sends no popup focus")
+        self.assertNotEqual("view-mode", self.show(grouped, "#{pane_mode}"))
+
+        # The client's own session: a waiting agent beside the done active
+        # pane of a background window. The client lands on the agent, and
+        # the window's old active pane is never current, so it stays done.
+        self.tmux("switch-client", "-c", client.tty, "-t", f"focus:{self.window_of(self.active)}")
+        wait_until(lambda: self.client_view(client)[0] == "focus", "back in focus")
+        self.open_agent_picker(client, offered, own_waiting)
+        wait_until(lambda: self.client_view(client) == ("focus", own_waiting), "the jump in focus")
+        self.assertEqual("done", self.pending(own_done), "the old active pane keeps its mark")
+        self.assertEqual("waiting", self.pending(own_waiting))
+
+    def test_prefix_W_stays_on_this_layer_and_in_modes(self) -> None:
+        """prefix W opens this layer's picker over a nested tmux and in modes."""
+        client = Client(self)
+        self.clients.append(client)
+        offered = self.use_agent_picker()
+
+        # Over a nested tmux reporting mouse, prefix W is this layer's: the
+        # nested tmux receives nothing. C-S-b W types the prefix and W into it.
+        received = self.root / "nested-received"
+        nested = self.recorder_pane("tmux", received, mouse=True)
+        wait_until(lambda: self.client_pane(client) == nested, "the nested pane is current")
+        target = self.new_session("work", "codex")
+        self.tmux("set-option", "-p", "-t", target, "@term_notify_pending", "waiting")
+        self.open_agent_picker(client, offered, "")
+        self.close_agent_picker(client, offered)
+        self.assertFalse(received.exists() and received.read_bytes(), "the nested tmux got keys")
+        offered.unlink()
+        client.send(b"\x1b[98;6u")
+        client.pump(0.1)
+        client.send(b"W")
+        wait_until(
+            lambda: received.exists() and received.read_bytes().endswith(b"\x02W"),
+            "C-S-b W reaches the nested tmux",
+        )
+        self.assertFalse(offered.exists(), "this layer opens no picker for C-S-b W")
+
+        # From a pane in copy mode the picker opens, and a target in copy mode
+        # shows [COPY] and keeps its mode after the jump.
+        self.tmux("copy-mode", "-t", self.client_pane(client))
+        self.tmux("copy-mode", "-t", target)
+        rows = self.open_agent_picker(client, offered, target)
+        self.assertIn("[COPY]", next(row[3] for row in rows if row[0] == target))
+        wait_until(lambda: self.client_view(client) == ("work", target), "the jump to work")
+        self.assertEqual("copy-mode", self.show(target, "#{pane_mode}"))
+
+    def test_prefix_W_from_the_pane_menu(self) -> None:
+        """The pane menu's item opens the picker, with the socket path quoted."""
+        client = Client(self)
+        self.clients.append(client)
+        offered = self.use_agent_picker()
+        target = self.new_session("work", "codex")
+        self.tmux("set-option", "-p", "-t", target, "@term_notify_pending", "waiting")
+
+        # The menu runs the picker through @agent_picker, so the socket path's
+        # space (this fixture's) reaches it quoted.
+        client.send(b"\x02>")
+        self.wait_drawn(client, b"Pick an agent pane", "the pane menu offers the picker")
+        rows = self.open_agent_picker(client, offered, target, keys=b"W")
+        self.assertIn(target, [row[0] for row in rows])
+        wait_until(lambda: self.client_view(client) == ("work", target), "the menu's jump")
+
+    def test_prefix_W_is_listed_in_the_palette(self) -> None:
+        """The palette lists the picker under its note."""
+        client = Client(self)
+        self.clients.append(client)
+        offered = self.use_agent_picker()
+        if not (self.root / "picker-bin" / "tmux-command-palette").exists():
+            self.skipTest("tmux-tools' tmux-command-palette is not installed")
+
+        # The palette's stand-in is the same fzf: it cancels with no pick.
+        offered.unlink(missing_ok=True)
+        pathlib.Path(f"{offered}.done").unlink(missing_ok=True)
+        self.tmux("set-environment", "-g", "PICKER_PICK", "")
+        client.send(b"\x1b ")
+        wait_until(offered.exists, "the palette offers the noted bindings")
+        self.close_agent_picker(client, offered)
+        self.assertRegex(
+            offered.read_text(),
+            r"(?m)^Pick an agent pane across sessions +prefix W\tprefix\tW$",
+        )
+
+    def test_prefix_a_in_the_same_session_keeps_a_bystanders_mark(self) -> None:
+        """prefix a selects the pane before its window in the client's session.
+
+        Selecting the window first would make the window's old active pane
+        current, and the select hooks would acknowledge its mark.
+        """
+        client = Client(self)
+        self.clients.append(client)
+        client.set_focus(True)
+        done = self.tmux(
+            "new-window", "-d", "-t", "focus:", "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertRegex(done, r"^%[0-9]+$", "tmux returned no pane id")
+        waiting = self.tmux(
+            "split-window",
+            "-d",
+            "-t",
+            done,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            self.program_command("codex"),
+        ).stdout.strip()
+        self.assertRegex(waiting, r"^%[0-9]+$", "tmux returned no pane id")
+        self.tmux("select-pane", "-t", done)
+        self.tmux("set-option", "-p", "-t", done, "@term_notify_pending", "done")
+        self.tmux("set-option", "-p", "-t", waiting, "@term_notify_pending", "waiting")
+        self.assertEqual([waiting, done], self.attention_panes(client))
+        self.press(client, b"a")
+        wait_until(lambda: self.client_view(client) == ("focus", waiting), "prefix a lands")
+        client.pump(0.2)
+        self.assertEqual("done", self.pending(done), "the old active pane keeps its mark")
 
     def test_terminal_render_paints_the_focused_leaf_night_owl_blue(self) -> None:
         # Remove unrelated status-line and inactive-pane background sequences

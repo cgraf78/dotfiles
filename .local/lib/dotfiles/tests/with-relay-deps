@@ -2,10 +2,11 @@
 # with-relay-deps - install the nested-relay providers, then run a command.
 #
 # The nested tmux relay PTY test needs the real Termnav and tmux-tools'
-# term-pane-state, which CI images do not carry. Install exactly the base
-# manifest's declarations for both through the candidate home's Shdeps, as a
-# real host would, then run the command with DOT_TEST_REQUIRE_TERMNAV=1 so the
-# relay test fails instead of skipping if either one is ever missing.
+# term-pane-state, and the prefix W tests tmux-tools' agent picker and
+# palette, which CI images do not carry. Install exactly the base manifest's
+# declarations for both repos through the candidate home's Shdeps, as a real
+# host would, then run the command with DOT_TEST_REQUIRE_TERMNAV=1 so those
+# tests fail instead of skipping if any command is ever missing.
 #
 # Run inside run-ci-candidate-home: it owns the disposable Shdeps runtime and
 # the SHDEPS_INSTALL_DIR/SHDEPS_BIN_DIR that lead its PATH.
@@ -41,7 +42,7 @@ awk '$1 == "cgraf78/termnav" || $1 == "cgraf78/tmux-tools"' "$manifest" \
   fail "expected the Termnav and tmux-tools declarations in $manifest"
 "$shdeps_bin" -c "$conf" update || fail 'Shdeps could not install the providers'
 
-for command_name in termnav term-pane-state; do
+for command_name in termnav term-pane-state tmux-agent-picker tmux-command-palette; do
   resolved=$(command -v "$command_name") ||
     fail "$command_name is not on PATH after the install"
   [[ $resolved == "$SHDEPS_BIN_DIR/$command_name" ]] ||
