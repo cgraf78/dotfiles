@@ -27,6 +27,7 @@ import unittest
 from unittest.mock import patch
 
 from tmux_paths import short_temporary_parent
+from tmux_workers import interrupt, record_server, run_workers
 
 
 def termux_tmux_never_renames() -> bool:
@@ -414,7 +415,8 @@ class LeafStyleTest(unittest.TestCase):
         # it exists; Termux and other platforms without /tmp keep their native
         # tempfile location.
         self.temporary = tempfile.TemporaryDirectory(
-            prefix="dot-focus-", dir=short_temporary_parent()
+            prefix="dot-focus-",
+            dir=os.environ.get("DOT_TEST_TMUX_WORKER_ROOT") or short_temporary_parent(),
         )
         self.root = pathlib.Path(self.temporary.name)
         # The production config interpolates this path into several run-shell
@@ -446,6 +448,7 @@ class LeafStyleTest(unittest.TestCase):
             "sleep 30",
         )
         self.server_pid = int(self.tmux("display-message", "-p", "#{pid}").stdout)
+        record_server(self.socket, self.server_pid)
         self.active = self.tmux("display-message", "-p", "#{pane_id}").stdout.strip()
         self.inactive = self.tmux(
             "split-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
@@ -1409,6 +1412,7 @@ class LeafStyleTest(unittest.TestCase):
             lambda: inner_tmux("list-clients", "-F", "#{client_pid}").stdout.strip(),
             "nested client attachment",
         )
+        record_server(inner, int(inner_tmux("display-message", "-p", "#{pid}").stdout))
         # The inner layer publishes only from its mark, as term-pane-mark does.
         inner_tmux("set-option", "-g", "status-right", "")
         marked = inner_tmux(
@@ -2827,6 +2831,13 @@ class LeafStyleTest(unittest.TestCase):
         A command from outside any client, like this one, runs against the
         current client, which is what a bare command in a hook would hit.
         """
+        # The first render can precede attach-hook completion. tmux suppresses
+        # resize hooks while another notification hook is running, so corrupt
+        # the old client's size only after this client's attach queue finishes.
+        wait_until(
+            lambda: self.global_option("@test_attached") == client.tty,
+            "the active client's attach hooks to finish",
+        )
         client.send(b"x")
         wait_until(
             lambda: self.show(self.active, "#{client_name}") == client.tty,
@@ -2865,6 +2876,12 @@ class LeafStyleTest(unittest.TestCase):
     def skip_without_guard(self) -> None:
         if not self.tmux_at_least(3, 4):
             self.skipTest("the oversized-client guard needs tmux 3.4")
+        self.tmux(
+            "set-hook",
+            "-g",
+            "client-attached[999999]",
+            "set-option -gF @test_attached '#{hook_client}'",
+        )
         # Record the widest any window gets, so a window that grew toward the
         # bad client and shrank back still fails.
         self.tmux("set-option", "-g", "@test_widest", "0")
@@ -2890,6 +2907,9 @@ class LeafStyleTest(unittest.TestCase):
         self.skip_without_guard()
         victim = Client(self)
         self.clients.append(victim)
+        # Model a slow attach helper: without the completion marker above,
+        # resizing the older client here drops its guard hook and stalls tmux.
+        self.tmux("set-hook", "-g", "client-attached[50]", 'run-shell "sleep 1"')
         healthy = Client(self)
         self.clients.append(healthy)
         window = self.window_size()
@@ -3913,8 +3933,29 @@ def main() -> int:
     LeafStyleTest.focus = arguments.focus
     LeafStyleTest.clip = arguments.clip
     LeafStyleTest.prompt = arguments.prompt
-    program = unittest.main(argv=[__file__, *unittest_arguments], verbosity=2, exit=False)
-    return 0 if program.result.wasSuccessful() else 1
+    # Every case owns its own server and writable roots. Two processes overlap
+    # the PTY observation windows without shortening negative assertions. Keep
+    # phones and explicitly sequential dot runs within their requested budget;
+    # an explicit unittest selection stays sequential for focused diagnostics.
+    if (
+        not unittest_arguments
+        and os.environ.get("DOT_TEST_JOBS") != "1"
+        and os.environ.get("DOT_TEST_PARALLEL") != "0"
+        and "com.termux" not in os.environ.get("PREFIX", "")
+    ):
+        suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+        names = [case.id().removeprefix("__main__.") for group in suite for case in group]
+        commands = [
+            [sys.executable, __file__, *sys.argv[1:], *names[index::2]] for index in range(2)
+        ]
+        return run_workers(commands)
+
+    previous = signal.signal(signal.SIGTERM, interrupt)
+    try:
+        program = unittest.main(argv=[__file__, *unittest_arguments], verbosity=2, exit=False)
+        return 0 if program.result.wasSuccessful() else 1
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":

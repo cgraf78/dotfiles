@@ -1452,12 +1452,16 @@ else
 fi
 
 if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  python3 "${BASH_SOURCE[0]%/*}/support/tmux-workers-test.py"
+  _assert_exit "tmux: PTY worker scheduling and lifecycle coverage passes" 0 "$?"
   # The PTY driver starts its own private servers from the same fixture
   # environment, so their hooks and panes stay off live state too.
   _tmux_fixture_env "$source_home" || exit 1
   # clip imports only Dot's public XDG library from the host. All writable
   # clipboard data still belongs to each PTY test's private XDG_DATA_HOME.
   TMUX_FIXTURE_ENV+=(DOT_TEST_HOST_HOME="${DOT_TEST_HOST_HOME:-$HOME}")
+  TMUX_FIXTURE_ENV+=(DOT_TEST_JOBS="${DOT_TEST_JOBS:-2}")
+  TMUX_FIXTURE_ENV+=(DOT_TEST_PARALLEL="${DOT_TEST_PARALLEL:-1}")
   if pty_output=$("${TMUX_FIXTURE_ENV[@]}" python3 \
     "${BASH_SOURCE[0]%/*}/support/tmux-focus-style.py" \
     --config "$tmux_config" --clip "$source_home/.local/bin/clip" \
