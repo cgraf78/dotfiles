@@ -1040,22 +1040,25 @@ def ssh_route(path, host):
     """OpenSSH's route before canonicalization, plus the domains it would
     search for the name, without any DNS lookup.
 
-    Clearing CanonicalDomains stops the canonical pass (which needs DNS) while
-    `ssh -G` still prints the configured CanonicalizeHostname mode; allowing
-    the local fallback keeps an empty search from failing outright. A second
-    pass with canonicalization off prints the configured domains.
+    The pass with canonicalization off gives the route and the configured
+    domains. A name ending in "." is fully qualified: OpenSSH never searches
+    domains for it, but resolves it at once whenever canonicalization is on,
+    so it gets no second pass. Otherwise clearing CanonicalDomains stops the
+    canonical pass while `ssh -G` still prints the configured mode, and
+    allowing the local fallback keeps that empty search from failing.
     """
+    configured = ssh_settings(path, host, "CanonicalizeHostname=no")
+    name = first(configured, "hostname") or host
+    if name.endswith(".") or is_address(name):
+        return configured
     settings = ssh_settings(path, host, "CanonicalDomains=none", "CanonicalizeFallbackLocal=yes")
     mode = first(settings, "canonicalizehostname")
     proxied = first(settings, "proxyjump") or first(settings, "proxycommand")
-    name = first(settings, "hostname") or host
     searched = mode == "always" or (mode in ("true", "yes") and not proxied)
-    if searched and not name.endswith(".") and not is_address(name):
-        configured = ssh_settings(path, host, "CanonicalizeHostname=no")
-        domains = " ".join(configured.get("canonicaldomains", []))
-        max_dots = int(first(configured, "canonicalizemaxdots") or "1")
-        if domains and name.count(".") <= max_dots:
-            settings["canonical-search"] = [domains]
+    domains = " ".join(configured.get("canonicaldomains", []))
+    max_dots = int(first(configured, "canonicalizemaxdots") or "1")
+    if searched and domains and name.count(".") <= max_dots:
+        settings["canonical-search"] = [domains]
     return settings
 
 

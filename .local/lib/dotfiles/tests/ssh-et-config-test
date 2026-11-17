@@ -120,6 +120,22 @@ config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
   'CanonicalizeMaxDots 3' 'Host box' '  HostName 192.0.2.7'
 agree box
 _assert_exit 'an address HostName is not searched' 0 $?
+# OpenSSH resolves a name ending in "." at once whenever canonicalization is
+# on, so every ssh -G for it must turn canonicalization off.
+mkdir -p "$TEST_TMPDIR/shim"
+real_ssh=$(command -v ssh)
+# shellcheck disable=SC2016 # The shim, not this suite, expands these.
+printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*" >>"$SSH_SHIM_LOG"' "exec '$real_ssh' \"\$@\"" \
+  >"$TEST_TMPDIR/shim/ssh"
+chmod +x "$TEST_TMPDIR/shim/ssh"
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' 'Host box' '  HostName box.example.'
+: >"$TEST_TMPDIR/ssh.log"
+agree_status=0
+SSH_SHIM_LOG=$TEST_TMPDIR/ssh.log PATH="$TEST_TMPDIR/shim:$PATH" \
+  _ssh_et_routes_agree "$TEST_TMPDIR/config" box >/dev/null 2>&1 || agree_status=$?
+_assert_exit 'a fully qualified HostName is not searched' 0 "$agree_status"
+_assert_eq 'a fully qualified HostName never reaches a canonical pass' '' \
+  "$(grep -v 'CanonicalizeHostname=no' "$TEST_TMPDIR/ssh.log" || true)"
 
 # The rest of any Match line is its own directive, so criteria such as
 # `user` set options instead of filtering.
