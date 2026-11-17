@@ -95,12 +95,31 @@ _assert_eq 'Match all inherits the previous block' \
 _assert_eq 'Match exec inherits the previous non-matching block' \
   "nas $me " "$(et_route nas)"
 
-# ET never canonicalizes, so the comparison must not depend on DNS: a config
-# that canonicalizes every name still compares its configured route.
+# ET dials the bare name OpenSSH would search CanonicalDomains for. The
+# check needs no DNS: the unresolvable domain would fail any lookup.
 config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
   'CanonicalizeFallbackLocal no' 'Host box' '  ProxyJump hop'
 agree box
-_assert_exit 'canonicalization is not part of the comparison' 0 $?
+_assert_exit 'a canonicalized name disagrees with ET' 1 $?
+_assert_contains 'the report names the searched domains' \
+  'OpenSSH searches CanonicalDomains invalid for box, but ET dials the bare name' "$AGREE_ERR"
+# `yes` skips the search when a proxy is in effect; `always` does not.
+config 'Host box' '  CanonicalizeHostname yes' '  CanonicalDomains invalid' '  ProxyJump hop'
+agree box
+_assert_exit 'canonicalize yes through a proxy is not searched' 0 $?
+config 'CanonicalizeHostname yes' 'CanonicalDomains invalid' 'Host box'
+agree box
+_assert_exit 'canonicalize yes without a proxy is searched' 1 $?
+# Names with more dots than CanonicalizeMaxDots, and addresses, are dialed
+# as written.
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
+  'CanonicalizeMaxDots 0' 'Host box.example'
+agree box.example
+_assert_exit 'a dotted name past CanonicalizeMaxDots is not searched' 0 $?
+config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
+  'CanonicalizeMaxDots 3' 'Host box' '  HostName 192.0.2.7'
+agree box
+_assert_exit 'an address HostName is not searched' 0 $?
 
 # The rest of any Match line is its own directive, so criteria such as
 # `user` set options instead of filtering.
@@ -178,6 +197,28 @@ _assert_contains 'the report names the lost setting' \
 config 'Host box' '  ProxyJump hop:2200' 'Host hop' '  HostName hop.example' '  Port 2200'
 agree box
 _assert_exit 'an explicit jump port is carried' 0 $?
+config 'Host box' '  ProxyJump hop' 'Host hop' '  HostName hop.example' \
+  '  IdentityAgent /tmp/agent.sock'
+agree box
+_assert_exit 'any OpenSSH setting only under the jump alias fails' 1 $?
+_assert_contains 'the report names that setting' 'where identityagent is' "$AGREE_ERR"
+# `ssh -G` expands the typed name into ControlPath, which is expected to
+# differ between the alias and its HostName.
+config 'Host box' '  ProxyJump hop' 'Host hop' '  HostName hop.example' \
+  'Host *' '  ControlPath /tmp/cm-%n'
+agree box
+_assert_exit 'a name-derived ControlPath is not a lost setting' 0 $?
+
+# ET always sends a command, which OpenSSH refuses beside a RemoteCommand,
+# on the destination and on the jump host's HostName.
+config 'Host box' '  RemoteCommand tmux attach'
+agree box
+_assert_exit 'a destination RemoteCommand fails' 1 $?
+_assert_contains 'the report names the RemoteCommand' 'RemoteCommand tmux attach' "$AGREE_ERR"
+config 'Host box' '  ProxyJump hop' 'Host hop hop.example' '  HostName hop.example' \
+  '  RemoteCommand tmux attach'
+agree box
+_assert_exit 'a jump host RemoteCommand fails' 1 $?
 
 # Constructs the emulation does not model fail instead of passing.
 config 'Include other.conf'

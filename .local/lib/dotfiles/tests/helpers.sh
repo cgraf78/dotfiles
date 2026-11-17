@@ -857,6 +857,9 @@ _with_timeout() {
 #   directly and passes `-J user@<HostName>` to ssh, so a jump host's own
 #   ProxyJump, ProxyCommand, or other settings under its alias are lost, and
 #   a multi-hop `ProxyJump a,b` cannot work.
+# - ET never canonicalizes: it dials the bare name OpenSSH would search
+#   CanonicalDomains for.
+# - ET always sends a command, which OpenSSH refuses beside a RemoteCommand.
 #
 # ET's command line can add a jump (`--jumphost`) but never remove one, so a
 # config that ET reads must give it the route OpenSSH computes. These helpers
@@ -900,10 +903,11 @@ import sys
 
 # Settings ET's parser feeds its own connection.
 ET_KEYS = ("hostname", "user", "proxyjump")
-# How the ssh ET spawns reaches a jump host: it names the jump host by its
-# HostName, so these settings must not depend on the alias.
-JUMP_KEYS = ("hostname", "port", "proxyjump", "proxycommand", "identityfile",
-             "certificatefile", "identitiesonly")
+# ET's ssh names a jump host by its HostName, so every OpenSSH setting must be
+# the same for that name as for the alias, except these: `host` is the name
+# itself, ET passes the user in `-J`, and `ssh -G` expands the name (`%n`)
+# into ControlPath.
+JUMP_IGNORED = {"host", "user", "controlpath"}
 
 
 class Unsupported(Exception):
@@ -1015,11 +1019,12 @@ def et_route(lines, host):
     return route
 
 
-def ssh_settings(path, host):
+def ssh_settings(path, host, *overrides):
     """Every setting `ssh -G` prints for host, as key -> list of values."""
-    # ET never canonicalizes a name, and OpenSSH's canonical pass needs DNS, so
-    # compare against the route OpenSSH computes before that pass.
-    command = ["ssh", "-G", "-F", path, "-o", "CanonicalizeHostname=no", host]
+    command = ["ssh", "-G", "-F", path]
+    for override in overrides:
+        command += ["-o", override]
+    command.append(host)
     proc = subprocess.run(command, capture_output=True, text=True)
     if proc.returncode != 0:
         raise SystemExit(f"ssh -G {host} failed: {proc.stderr.strip()}")
@@ -1029,6 +1034,33 @@ def ssh_settings(path, host):
         if value != "none":
             settings.setdefault(key, []).append(value)
     return settings
+
+
+def ssh_route(path, host):
+    """OpenSSH's route before canonicalization, plus the domains it would
+    search for the name, without any DNS lookup.
+
+    Clearing CanonicalDomains stops the canonical pass (which needs DNS) while
+    `ssh -G` still prints the configured CanonicalizeHostname mode; allowing
+    the local fallback keeps an empty search from failing outright. A second
+    pass with canonicalization off prints the configured domains.
+    """
+    settings = ssh_settings(path, host, "CanonicalDomains=none", "CanonicalizeFallbackLocal=yes")
+    mode = first(settings, "canonicalizehostname")
+    proxied = first(settings, "proxyjump") or first(settings, "proxycommand")
+    name = first(settings, "hostname") or host
+    searched = mode == "always" or (mode in ("true", "yes") and not proxied)
+    if searched and not name.endswith(".") and not is_address(name):
+        configured = ssh_settings(path, host, "CanonicalizeHostname=no")
+        domains = " ".join(configured.get("canonicaldomains", []))
+        max_dots = int(first(configured, "canonicalizemaxdots") or "1")
+        if domains and name.count(".") <= max_dots:
+            settings["canonical-search"] = [domains]
+    return settings
+
+
+def is_address(name):
+    return re.fullmatch(r"[0-9.]+|\[?[0-9a-fA-F:.]*:[0-9a-fA-F:.]*\]?", name) is not None
 
 
 def first(settings, key):
@@ -1068,7 +1100,14 @@ class Checker:
     def destination(self, host):
         """Check `et host`; return the jump alias ET dials, if any."""
         et = et_route(self.lines, host)
-        ssh = ssh_settings(self.path, host)
+        ssh = ssh_route(self.path, host)
+        if first(ssh, "canonical-search"):
+            self.report(f"ET route for {host}: OpenSSH searches CanonicalDomains "
+                        f"{first(ssh, 'canonical-search')} for "
+                        f"{first(ssh, 'hostname')}, but ET dials the bare name")
+        if first(ssh, "remotecommand"):
+            self.report(f"ET route for {host}: OpenSSH has RemoteCommand "
+                        f"{first(ssh, 'remotecommand')}, which refuses ET's command")
         if et["hostname"].lower() != (first(ssh, "hostname") or "").lower():
             self.report(f"ET route for {host}: hostname et={et['hostname']} "
                         f"ssh={describe(first(ssh, 'hostname'))}")
@@ -1102,17 +1141,18 @@ class Checker:
         """Check the jump host ET dials for a `ProxyJump hop` route."""
         user, alias, port = parse_hop(hop)
         target = et_route(self.lines, alias)["hostname"]
-        by_alias = ssh_settings(self.path, alias)
+        by_alias = ssh_route(self.path, alias)
         if first(by_alias, "proxyjump") or first(by_alias, "proxycommand"):
             self.report(f"ET jump host {alias}: OpenSSH reaches it through "
                         f"{first(by_alias, 'proxyjump') or first(by_alias, 'proxycommand')}, "
                         "but ET dials a jump host directly and cannot chain")
-        if target.lower() == alias.lower():
-            return
-        by_name = ssh_settings(self.path, target)
-        for key in JUMP_KEYS:
-            if key == "port" and port:
-                continue
+        by_name = by_alias if target.lower() == alias.lower() else ssh_route(self.path, target)
+        if first(by_name, "remotecommand"):
+            self.report(f"ET jump host {alias}: OpenSSH has RemoteCommand "
+                        f"{first(by_name, 'remotecommand')} for {target}, which refuses "
+                        "ET's command")
+        ignored = JUMP_IGNORED | ({"port"} if port else set())
+        for key in sorted((set(by_alias) | set(by_name)) - ignored):
             if by_alias.get(key) != by_name.get(key):
                 self.report(f"ET jump host {alias}: ET's ssh names it {target}, where "
                             f"{key} is {describe(' '.join(by_name.get(key, [])))} "
