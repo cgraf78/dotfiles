@@ -673,90 +673,19 @@ EOF
 fi
 
 # Rules and playbooks that name tmux-tools' tmux-pane must name its real
-# subcommands, options and exit statuses: `tmux-pane --interface` is its own
-# list, so a renamed or removed one fails here instead of leaving agents a
-# broken recipe. CI installs tmux-tools (with-relay-deps sets
-# DOT_TEST_REQUIRE_TERMNAV=1), so the check cannot skip there. Its twin,
-# ref_check in tmux-tools' test/tmux-pane-test, checks that repo's docs.
-#
-# Each paragraph or list item is joined into one line, so a reference wrapped
-# across lines is still read whole. In one that names tmux-pane:
-# - `tmux-pane SUB ...` names a real subcommand and only its options;
-# - every other --option word is one some subcommand takes;
-# - a number after "after" or "exit"/"exits" is a listed exit status.
-# The interface goes in through the environment (BSD awk refuses a -v value
-# with a newline), and the scan ends with "#refs N", the references it read,
-# so a checker that silently reads nothing fails loudly.
-tmux_pane_scan() { # tmux_pane_scan INTERFACE FILE...: bad references, then "#refs N"
-  local iface=$1
-  shift
-  sed 's/`/ ` /g' "$@" | TP_IFACE=$iface awk -v sq="'" '
-    BEGIN {
-      n = split(ENVIRON["TP_IFACE"], L, "\n")
-      for (i = 1; i <= n; i++) {
-        m = split(L[i], f, " ")
-        if (f[1] == "subcommands") for (j = 2; j <= m; j++) sub_ok[f[j]] = 1
-        if (f[1] == "exit") for (j = 2; j <= m; j++) code_ok[f[j]] = 1
-      }
-      for (i = 1; i <= n; i++) {
-        m = split(L[i], f, " ")
-        if (!(f[1] in sub_ok)) continue
-        for (j = 2; j <= m; j++) { opt[f[1], f[j]] = 1; any[f[j]] = 1 }
-      }
-    }
-    function check(r,   w, t, i, x, y, z, nb, bare, b, s, ns, alt, known, a, q, k, nq, no, alt2, ok, seen) {
-      if (!index(r, "tmux-pane")) return
-      w = split(r, t, " ")
-      split("", seen)
-      for (i = 1; i < w; i++) {
-        if (t[i] != "tmux-pane") continue
-        s = t[i + 1]; gsub(/[][(),.;:]/, "", s)
-        if (s !~ /^[a-z]+(\|[a-z]+)*$/) continue
-        ns = split(s, alt, "|"); known = 1
-        for (a = 1; a <= ns; a++) if (!(alt[a] in sub_ok)) known = 0
-        if (!known) { if (t[i + 2] == "-t") print "subcommand " s; continue }
-        refs++
-        q = 0
-        for (k = i + 2; k <= w; k++) {
-          x = t[k]
-          if (x == "`" || x == "#" || x == "|" || x == "--" || x ~ /^\$/) break
-          seen[k] = 1
-          nq = gsub(sq, "&", x)
-          if (q || (nq % 2 == 1 && substr(x, 1, 1) == sq)) { if (nq % 2 == 1) q = !q; continue }
-          if (x !~ /^-/) continue
-          gsub(/[][(),.;:"]/, "", x); sub(/=.*/, "", x)
-          no = split(x, alt2, "|")
-          for (b = 1; b <= no; b++) {
-            if (alt2[b] == "" || alt2[b] ~ /^-[0-9]/) continue
-            ok = 0
-            for (a = 1; a <= ns; a++) if ((alt[a], alt2[b]) in opt) ok = 1
-            if (!ok) print s " " alt2[b]
-          }
-        }
-      }
-      for (i = 1; i <= w; i++) {
-        y = tolower(t[i]); z = t[i + 1]; gsub(/[(),.;:]/, "", z)
-        if ((y == "after" || y == "exit" || y == "exits") && z ~ /^[0-9]+$/ && !(z in code_ok))
-          print "exit " z
-        if (i in seen) continue
-        x = t[i]; gsub(/[][(),.;:"]/, "", x)
-        nb = split(x, bare, "|")
-        for (b = 1; b <= nb; b++)
-          if (bare[b] ~ /^--[a-z]/) { sub(/=.*/, "", bare[b]); if (!(bare[b] in any)) print "option " bare[b] }
-      }
-    }
-    /^[ \t]*$/ { check(rec); rec = ""; next }
-    /^[ \t]*([-*]|[0-9]+\.) / { check(rec); rec = "" }
-    { rec = rec " " $0 }
-    END { check(rec); print "#refs " refs + 0 }'
-}
-tmux_pane_refs() { # tmux_pane_refs INTERFACE FILE...: bad references; fails loudly
+# subcommands, options and exit statuses, so a renamed or removed one fails
+# here instead of leaving agents a broken recipe. The scanner is tmux-pane's
+# own `--check-refs` (tmux-pane(1), INTERFACE LIST), the one copy its repo's
+# doc tests use too; it ends with "#refs N", the references it read, so a
+# scan that reads nothing fails loudly. CI installs tmux-tools
+# (with-relay-deps sets DOT_TEST_REQUIRE_TERMNAV=1), so this cannot skip there.
+tmux_pane_refs() { # tmux_pane_refs FILE...: bad references; fails loudly
   local out
-  out=$(tmux_pane_scan "$@") || out='checker failed'
+  out=$(tmux-pane --check-refs "$@" 2>&1) || out="checker failed: $out"
   case $out in *'#refs '[0-9]*) ;; *) out="checker failed${out:+: $out}" ;; esac
   printf '%s\n' "$out" | grep -v '^#refs '
 }
-if tmux_pane_iface=$(tmux-pane --interface 2>/dev/null) && [[ -n $tmux_pane_iface ]]; then
+if tmux_pane_probe=$(tmux-pane --check-refs /dev/null 2>/dev/null) && [[ $tmux_pane_probe == '#refs 0' ]]; then
   tmux_pane_docs=()
   while IFS= read -r tmux_pane_doc; do
     tmux_pane_docs+=("$tmux_pane_doc")
@@ -765,21 +694,31 @@ if tmux_pane_iface=$(tmux-pane --interface 2>/dev/null) && [[ -n $tmux_pane_ifac
   if ((${#tmux_pane_docs[@]} == 0)); then
     _fail 'agent rules: some rule or playbook names tmux-pane'
   else
+    # One call, so another command's options are known as theirs.
     _assert_eq 'agent rules: tmux-pane references name real subcommands, options and exits' '' \
-      "$(tmux_pane_refs "$tmux_pane_iface" "${tmux_pane_docs[@]}" | LC_ALL=C sort -u | tr '\n' ';')"
+      "$(tmux_pane_refs "${tmux_pane_docs[@]}" | LC_ALL=C sort -u | tr '\n' ';')"
   fi
-  # The checker itself: a wrong option, one wrapped onto the next line, a
-  # bare unknown option, a wrong subcommand and an unlisted exit status.
+  # The installed checker catches what these rules need caught: a wrong
+  # option, bracketed ones, one wrapped onto the next line, a bare unknown
+  # option, a wrong subcommand and an unlisted exit status, but not a
+  # number in prose.
+  tmux_pane_sample=$(mktemp "${TMPDIR:-/tmp}/agent-rules-tmux-pane.XXXXXXXX")
+  cat >"$tmux_pane_sample" <<'EOF'
+Use `tmux-pane send -t %1 --enterr` or `tmux-pane read -t %N [--line N]`,
+`tmux-pane send
+-t %1 --wrapped`; keep `--bogus` low, `tmux-pane nope -t %1`. It exits 99;
+after 5 retries, or after 68, it is fine.
+EOF
   _assert_eq 'agent rules: the tmux-pane reference check flags bad references' \
-    'exit 99;option --bogus;send --enterr;send --wrapped;subcommand nope;' \
-    "$(printf '%s\n' 'use `tmux-pane send -t %1 --enterr` or `tmux-pane send' \
-      '-t %1 --wrapped`; keep `--bogus` low, `tmux-pane nope -t %1`; after 99' |
-      tmux_pane_refs "$tmux_pane_iface" /dev/stdin | LC_ALL=C sort -u | tr '\n' ';')"
+    'exit 99;option --bogus;read --line;send --enterr;send --wrapped;subcommand nope;' \
+    "$(tmux_pane_refs "$tmux_pane_sample" | LC_ALL=C sort -u | tr '\n' ';')"
+  printf '%s\n' 'use `tmux-pane send -t %1 '"'"'a -b'"'"' --enter` and `tmux-pane wait' \
+    '-t %1 --prompt`' >"$tmux_pane_sample"
   _assert_eq 'agent rules: the tmux-pane reference check reads known-good references' '#refs 2' \
-    "$(printf '%s\n' 'use `tmux-pane send -t %1 '"'"'a -b'"'"' --enter` and `tmux-pane wait' \
-      '-t %1 --prompt`' | tmux_pane_scan "$tmux_pane_iface" /dev/stdin)"
+    "$(tmux-pane --check-refs "$tmux_pane_sample")"
+  rm -f -- "$tmux_pane_sample"
 elif [[ ${DOT_TEST_REQUIRE_TERMNAV:-} == 1 ]]; then
-  _fail 'agent rules: tmux-pane --interface runs (tmux-tools is installed in CI)'
+  _fail 'agent rules: tmux-pane --check-refs runs (tmux-tools is installed in CI)'
 else
   echo '  SKIP: agent rules: tmux-pane is not installed; its references are unchecked'
 fi
