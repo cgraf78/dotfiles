@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import errno
+import fcntl
 import json
 import os
 import pathlib
@@ -15,9 +16,12 @@ import select
 import shlex
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 import unittest
 from unittest.mock import patch
@@ -52,13 +56,32 @@ def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
     raise AssertionError(f"timed out waiting for {description}")
 
 
+def set_terminal_size(descriptor: int, rows: int, columns: int) -> None:
+    """Set a terminal's size the way a terminal emulator does."""
+    fcntl.ioctl(descriptor, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+
+
 class Client:
     """One controllable terminal attachment to the isolated tmux server."""
 
-    def __init__(self, test: LeafStyleTest, session: str = "focus"):
+    def __init__(
+        self,
+        test: LeafStyleTest,
+        session: str = "focus",
+        size: tuple[int, int] | None = None,
+        wait: bool = True,
+    ):
+        """Attach to session; size is (rows, columns) before tmux starts.
+
+        With wait false the caller expects tmux to refuse the attachment, so
+        there is no client entry or first render to wait for.
+        """
         self.test = test
+        self.status: int | None = None
         self.pid, self.master = pty.fork()
         if self.pid == 0:
+            if size is not None:
+                set_terminal_size(0, *size)
             os.environ.clear()
             os.environ.update(test.environment)
             os.environ["TERM"] = "xterm-256color"
@@ -67,8 +90,9 @@ class Client:
                 ["tmux", "-S", str(test.socket), "attach-session", "-t", session],
             )
         self.tty = ""
-        wait_until(self._find_tty, "tmux client attachment")
-        self.pump_until_quiet("initial tmux render")
+        if wait:
+            wait_until(self._find_tty, "tmux client attachment")
+            self.pump_until_quiet("initial tmux render")
 
     def _find_tty(self) -> bool:
         listing = self.test.tmux("list-clients", "-F", "#{client_pid} #{client_tty}", check=False)
@@ -97,7 +121,16 @@ class Client:
     def drain(self) -> None:
         """Discard bytes already queued before requesting a new render."""
         while select.select([self.master], [], [], 0)[0]:
-            payload = os.read(self.master, 65536)
+            try:
+                payload = os.read(self.master, 65536)
+            except OSError as error:
+                # Linux reports EIO once the client has closed the terminal.
+                if error.errno == errno.EIO:
+                    return
+                raise
+            if not payload:
+                # macOS and the BSDs report a closed terminal as end of file.
+                return
             if b"\x1b[?996n" in payload:
                 os.write(self.master, b"\x1b[?997;1n")
 
@@ -151,6 +184,26 @@ class Client:
             f"timed out waiting for {description}: "
             f"expected {expected}, got {last_background}; {last_render!r}"
         )
+
+    def resize(self, rows: int, columns: int) -> None:
+        """Change the terminal size; the kernel signals tmux as a terminal would."""
+        set_terminal_size(self.master, rows, columns)
+
+    def exited(self) -> bool:
+        """Service the terminal and report whether the tmux client has exited.
+
+        A client tmux has detached may still be writing its last output, so
+        keep draining the terminal or that write could block its exit.
+        """
+        self.drain()
+        if self.pid is None:
+            return True
+        waited, status = os.waitpid(self.pid, os.WNOHANG)
+        if waited != self.pid:
+            return False
+        self.pid = None
+        self.status = os.waitstatus_to_exitcode(status)
+        return True
 
     def send(self, payload: bytes) -> None:
         """Write raw terminal input without asking tmux to synthesize a key."""
@@ -392,6 +445,7 @@ class LeafStyleTest(unittest.TestCase):
             "focus",
             "sleep 30",
         )
+        self.server_pid = int(self.tmux("display-message", "-p", "#{pid}").stdout)
         self.active = self.tmux("display-message", "-p", "#{pane_id}").stdout.strip()
         self.inactive = self.tmux(
             "split-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
@@ -410,9 +464,30 @@ class LeafStyleTest(unittest.TestCase):
         except Exception as error:
             errors.append(error)
         finally:
+            # A server stuck in a regression answers no kill-server and would
+            # outlive the suite at full CPU, so kill the process this test
+            # started. The server daemonizes, so its pid can be reused once it
+            # exits: kill it only while its command line names our socket.
+            pid = getattr(self, "server_pid", None)
+            if pid is not None and self.owns_server(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             self.temporary.cleanup()
         if errors:
             raise AssertionError(f"owned fixture cleanup failed: {errors}")
+
+    def owns_server(self, pid: int) -> bool:
+        """Return whether pid is still this test's tmux server."""
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "args=", "-p", str(pid)], text=True, capture_output=True, check=False
+            )
+        except OSError:
+            # Without ps there is no way to tell, so leave the process alone.
+            return False
+        return str(self.socket) in result.stdout
 
     def tmux(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -2731,6 +2806,169 @@ class LeafStyleTest(unittest.TestCase):
             "other types its command line and Enter into the agent pane",
         )
         self.assertEqual("", keys(shell))
+
+    # Oversized clients. A closing terminal can report garbage such as
+    # 43690x43690; drawing a client that size takes the server minutes, during
+    # which it answers no client. A regression shows up as one of the waits
+    # below timing out.
+    def client_sizes(self) -> dict[str, str]:
+        rows = self.tmux("list-clients", "-F", "#{client_tty} #{client_width}x#{client_height}")
+        return dict(row.split() for row in rows.stdout.splitlines())
+
+    def window_size(self) -> str:
+        return self.show(self.active, "#{window_width}x#{window_height}")
+
+    def global_option(self, name: str) -> str:
+        return self.tmux("show-options", "-gv", name, check=False).stdout.strip()
+
+    def make_most_active(self, client: Client) -> None:
+        """Type into client so tmux treats it as the current client.
+
+        A command from outside any client, like this one, runs against the
+        current client, which is what a bare command in a hook would hit.
+        """
+        client.send(b"x")
+        wait_until(
+            lambda: self.show(self.active, "#{client_name}") == client.tty,
+            "the typing client to become the current client",
+        )
+
+    def assert_refused(self, victim: Client, healthy: Client | None, window: str) -> None:
+        """The oversized client exits cleanly and nothing else changes.
+
+        With no client left, the window keeps an ordinary size rather than
+        the one it had.
+        """
+        wait_until(victim.exited, "the oversized client to exit")
+        self.assertEqual(0, victim.status)
+        self.assertEqual([healthy.tty] if healthy else [], list(self.client_sizes()))
+        if healthy:
+            self.assertEqual(window, self.window_size())
+        else:
+            width, height = map(int, self.window_size().split("x"))
+            self.assertLessEqual(max(width, height), 4000)
+        detached = self.global_option("@oversized_client_detached")
+        if victim.tty:
+            self.assertEqual(victim.tty, detached)
+        else:
+            # A client refused at attach is gone before its tty is known.
+            self.assertNotEqual("", detached)
+        self.assertNotEqual(healthy.tty if healthy else None, detached)
+        self.assertLessEqual(int(self.global_option("@test_widest")), 4000)
+        # The guard changes window-size only for one server loop.
+        self.assertEqual("latest", self.global_option("window-size"))
+        self.assertEqual("", self.global_option("@tmux_window_size_restore"))
+        self.assertEqual("", self.global_option("@tmux_lone_window"))
+        local = self.tmux("show-options", "-wv", "-t", self.active, "window-size", check=False)
+        self.assertEqual("", local.stdout.strip())
+
+    def skip_without_guard(self) -> None:
+        if not self.tmux_at_least(3, 4):
+            self.skipTest("the oversized-client guard needs tmux 3.4")
+        # Record the widest any window gets, so a window that grew toward the
+        # bad client and shrank back still fails.
+        self.tmux("set-option", "-g", "@test_widest", "0")
+        self.tmux(
+            "set-hook",
+            "-g",
+            "window-resized[999]",
+            "set-option -gF @test_widest "
+            "'#{?#{e|>:#{window_width},#{@test_widest}},#{window_width},#{@test_widest}}'",
+        )
+
+    def test_an_oversized_client_is_detached_before_it_is_drawn(self) -> None:
+        self.skip_without_guard()
+        healthy = Client(self)
+        self.clients.append(healthy)
+        window = self.window_size()
+        victim = Client(self)
+        self.clients.append(victim)
+        victim.resize(43690, 43690)
+        self.assert_refused(victim, healthy, window)
+
+    def test_the_guard_detaches_the_oversized_client_not_the_active_one(self) -> None:
+        self.skip_without_guard()
+        victim = Client(self)
+        self.clients.append(victim)
+        healthy = Client(self)
+        self.clients.append(healthy)
+        window = self.window_size()
+        # In real use the terminal that breaks is not the one being typed in.
+        self.make_most_active(healthy)
+        victim.resize(43690, 43690)
+        self.assert_refused(victim, healthy, window)
+
+    def test_an_oversized_only_client_leaves_its_window_ordinary(self) -> None:
+        self.skip_without_guard()
+        # Fill the pane: tmux reflows every written cell when it resizes.
+        self.tmux("send-keys", "-t", self.active, "-l", "x" * 4000)
+        window = self.window_size()
+        victim = Client(self)
+        self.clients.append(victim)
+        victim.resize(43690, 43690)
+        self.assert_refused(victim, None, window)
+
+    def test_a_client_attaching_with_an_oversized_terminal_is_detached(self) -> None:
+        self.skip_without_guard()
+        healthy = Client(self)
+        self.clients.append(healthy)
+        window = self.window_size()
+        victim = Client(self, size=(43690, 43690), wait=False)
+        self.clients.append(victim)
+        self.assert_refused(victim, healthy, window)
+
+    def test_the_size_limit_is_4000_cells_each_way(self) -> None:
+        self.skip_without_guard()
+        healthy = Client(self)
+        self.clients.append(healthy)
+        for rows, columns, kept in (
+            (50, 4000, True),
+            (4000, 80, True),
+            (50, 4001, False),
+            (4001, 80, False),
+        ):
+            with self.subTest(size=f"{columns}x{rows}"):
+                self.tmux("set-option", "-gu", "@oversized_client_detached")
+                window = self.window_size()
+                client = Client(self)
+                self.clients.append(client)
+                client.resize(rows, columns)
+                if not kept:
+                    self.assert_refused(client, healthy, window)
+                    continue
+                # tmux runs the hook before it reads the next command, so once
+                # list-clients shows the new size the guard has already passed.
+                size = f"{columns}x{rows}"
+                tty = client.tty
+                wait_until(
+                    lambda tty=tty, size=size: self.client_sizes().get(tty) == size,
+                    f"the client to report {size}",
+                )
+                self.assertEqual("", self.global_option("@oversized_client_detached"))
+                client.close()
+                wait_until(
+                    lambda tty=tty: tty not in self.client_sizes(),
+                    "the client to leave",
+                )
+
+    def test_the_guard_skips_a_connection_that_has_not_identified(self) -> None:
+        self.skip_without_guard()
+        client = Client(self)
+        self.clients.append(client)
+        # A tmux command that has connected but not yet identified itself is
+        # a client with no name. Hold one open while the guard's hook runs.
+        # The server accepts connections in order, so once a later command
+        # has been answered it has accepted this one too.
+        pending = socket.socket(socket.AF_UNIX)
+        self.addCleanup(pending.close)
+        pending.connect(str(self.socket))
+        self.tmux("display-message", "-p", "")
+        client.resize(40, 120)
+        wait_until(
+            lambda: self.client_sizes().get(client.tty) == "120x40",
+            "the client to report 120x40",
+        )
+        self.assertEqual("", self.global_option("@oversized_client_detached"))
 
     # Right-click menus and the command palette. These cases read client
     # state through list-clients, which every supported tmux targets

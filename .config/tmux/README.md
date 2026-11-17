@@ -42,6 +42,12 @@ other end.
 Base also owns:
 
 - `set -g mouse on`, which its copy-mode mouse bindings rely on.
+- The oversized-client guard: `client-attached[0]` and `client-resized[0]`
+  suspend and detach a client whose terminal reports more than 4000 columns or
+  rows, such as the 43690x43690 a closing terminal can send. Drawing a client
+  that size stalls the whole server for minutes. For one server loop the guard
+  sets `window-size` to `smallest` (and pins a window no other client views),
+  then restores it. It needs tmux 3.4.
 - Ctrl-Tab and Ctrl-Shift-Tab window switching, which forwards into Vim,
   Neovim, fzf, and nested terminal apps, switches tmux windows when the
   current tmux layer owns the chord, and sends one-window boundaries through
