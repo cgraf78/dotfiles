@@ -1045,11 +1045,12 @@ def ssh_route(path, host):
     domains for it, but resolves it at once whenever canonicalization is on,
     so it gets no second pass. Otherwise clearing CanonicalDomains stops the
     canonical pass while `ssh -G` still prints the configured mode, and
-    allowing the local fallback keeps that empty search from failing.
+    allowing the local fallback keeps that empty search from failing; an
+    address needs no lookup there and still sees `Match canonical` blocks.
     """
     configured = ssh_settings(path, host, "CanonicalizeHostname=no")
     name = first(configured, "hostname") or host
-    if name.endswith(".") or is_address(name):
+    if name.endswith("."):
         return configured
     settings = ssh_settings(path, host, "CanonicalDomains=none", "CanonicalizeFallbackLocal=yes")
     mode = first(settings, "canonicalizehostname")
@@ -1057,7 +1058,7 @@ def ssh_route(path, host):
     searched = mode == "always" or (mode in ("true", "yes") and not proxied)
     domains = " ".join(configured.get("canonicaldomains", []))
     max_dots = int(first(configured, "canonicalizemaxdots") or "1")
-    if searched and domains and name.count(".") <= max_dots:
+    if searched and domains and not is_address(name) and name.count(".") <= max_dots:
         settings["canonical-search"] = [domains]
     return settings
 

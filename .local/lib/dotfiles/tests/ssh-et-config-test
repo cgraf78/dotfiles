@@ -120,6 +120,11 @@ config 'CanonicalizeHostname always' 'CanonicalDomains invalid' \
   'CanonicalizeMaxDots 3' 'Host box' '  HostName 192.0.2.7'
 agree box
 _assert_exit 'an address HostName is not searched' 0 $?
+# OpenSSH still applies `Match canonical` to an address, without any lookup.
+config 'Host box' '  HostName 192.0.2.7' '  CanonicalizeHostname always' \
+  '  CanonicalDomains invalid' 'Match canonical host 192.0.2.7' '  ProxyCommand nc %h %p'
+agree box
+_assert_exit 'an address still sees Match canonical blocks' 1 $?
 # OpenSSH resolves a name ending in "." at once whenever canonicalization is
 # on, so every ssh -G for it must turn canonicalization off.
 mkdir -p "$TEST_TMPDIR/shim"
