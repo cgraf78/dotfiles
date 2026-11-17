@@ -227,13 +227,13 @@ _assert_contains 'Ubuntu CI measures clean profile footprints' \
   'footprint) group=profile-footprint-fixtures' \
   "$(<"$source_home/.github/workflows/installed-profiles.yml")"
 _assert_contains 'top-level CI installs hostname for profile selection' \
-  'profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
+  'profiles: base,jq,python,zsh,lua,tmux-floor,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
   "$workflow_content"
 _assert_contains 'Termux CI installs hostname for profile selection' \
-  'termux-profiles: base,python,tmux,ripgrep,hostname' "$workflow_content"
+  'termux-profiles: base,python,tmux-floor,ripgrep,hostname' "$workflow_content"
 _assert_eq 'cold bootstrap installs hostname for profile selection' 1 \
   "$(grep -Fxc \
-    '          profiles: base,jq,python,zsh,lua,tmux,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname' \
+    '          profiles: base,jq,python,zsh,lua,tmux-floor,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname' \
     "$workflow")"
 _assert_not_contains 'top-level CI no longer uses moving dotfiles setup' \
   'setup: dotfiles' "$workflow_content"
