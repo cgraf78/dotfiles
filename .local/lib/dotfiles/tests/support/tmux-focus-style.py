@@ -1457,15 +1457,129 @@ class LeafStyleTest(unittest.TestCase):
             outer_seen = self.tmux(
                 "show-options", "-p", "-t", host, "-v", "@child_lease_seen", check=False
             ).stdout.strip()
+            # The hook's run-shell discards the publisher's output, so run
+            # the same command for the outer session once more and keep what
+            # it says. Diagnostics only: the test has already failed.
+            outer_session = self.tmux(
+                "display-message", "-p", "-t", host, "#{session_id}", check=False
+            ).stdout.strip()
+            rerun = self.rerun_publisher(publisher, outer_session, terminal, field, value)
             self.fail(
                 f"terminal never saw {field}={value} (inner mark {inner_mark!r}, "
                 f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}, "
-                f"hook published {outer_seen!r}): {bytes(output)!r}"
+                f"hook published {outer_seen!r}; {rerun}): {bytes(output)!r}"
             )
 
         reaches(["set-option", *pane, "done"], "pending", 1)
         reaches(["set-option", *pane, "waiting"], "waiting", 1)
         reaches(["set-option", "-u", *pane], "pending", 0)
+
+    def rerun_publisher(
+        self, publisher: str, session: str, terminal: Client, field: str, value: int
+    ) -> str:
+        """Say why a relay frame went missing, for the failure message only.
+
+        The hook's run-shell discards the publisher's output, so run the same
+        command again, traced, while this test keeps reading the terminal:
+        whether its frame arrives now tells a dropped write from a publisher
+        that sends nothing. Termnav writes each frame without blocking, within
+        a short deadline, after proving the client owns its terminal, which on
+        hosts without /proc is a ps run, so time that too. Every step reports
+        its own failure inline so the caller's message survives.
+        """
+        frame = re.compile(rb"\x1b\]1337;SetUserVar=TERM_PANE_STATE=([A-Za-z0-9+/=]+)\x07")
+        trace = self.root / "publisher-trace"
+        started = time.monotonic()
+        late = bytearray()
+        with trace.open("wb") as stderr:
+            try:
+                # Its own session, so the Termnav processes it starts can be
+                # killed with it rather than outliving this test.
+                rerun = subprocess.Popen(
+                    ["bash", "-x", publisher, "--socket", str(self.socket), "--session", session],
+                    env=self.environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=stderr,
+                    start_new_session=True,
+                )
+            except OSError as error:
+                rerun = None
+                result = f"could not start ({error})"
+            if rerun is not None:
+                try:
+                    while rerun.poll() is None and time.monotonic() - started < 10:
+                        late.extend(terminal.pump(0.05))
+                    if rerun.poll() is None:
+                        result = "timed out after 10 s"
+                    else:
+                        result = f"exited {rerun.returncode} in {time.monotonic() - started:.2f} s"
+                finally:
+                    # Finished or not, whatever it left running is in its
+                    # group.
+                    try:
+                        os.killpg(rerun.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+                    rerun.wait()
+        late.extend(terminal.pump(0.5))
+        arrived = any(
+            json.loads(base64.b64decode(match[1])).get(field) == value
+            for match in frame.finditer(late)
+        )
+        steps = [
+            line.strip()
+            for line in trace.read_text(errors="replace").splitlines()
+            if "termnav tmux attention" in line or "status=" in line
+        ]
+        timings = []
+        ps = ""
+        for _ in range(3):
+            began = time.monotonic()
+            try:
+                subprocess.run(
+                    ["ps", "-p", str(terminal.pid), "-o", "pgid=", "-o", "tpgid="],
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+            except FileNotFoundError:
+                ps = "ps unavailable"
+                break
+            except subprocess.TimeoutExpired:
+                ps = "ps timed out after 10 s"
+                break
+            timings.append(time.monotonic() - began)
+        if not ps:
+            ps = f"ps for the client took {max(timings) * 1000:.0f} ms at most"
+        return f"publisher rerun {result}, its frame arrived {arrived}, {ps}, trace {steps[-12:]!r}"
+
+    def test_attaching_shows_no_error(self) -> None:
+        """A client attach shows no failed command and no config error.
+
+        tmux shows either in view mode over the pane as a client attaches: the
+        attach hook's Termnav call failed with "returned 127" on hosts without
+        Termnav, and tmux before 3.6 rejected the pane-scrollbars option.
+        """
+        # tmux 3.2 lacks the client focus hooks this config sets and lists
+        # those errors in that view, over anything else it would show.
+        if not self.supports_hook("client-focus-in"):
+            self.skipTest("tmux does not expose client focus hooks")
+        home = pathlib.Path(self.environment.get("HOME", "/nonexistent"))
+        if (home / ".local/bin/termnav").exists():
+            self.skipTest("this HOME has ~/.local/bin/termnav")
+        client = Client(self)
+        self.clients.append(client)
+        self.tmux("refresh-client", "-t", client.tty)
+        shown = re.sub(
+            r"\x1b(\[[0-9;?]*[A-Za-z]|[()][A-Z0-9]|[=>])",
+            " ",
+            client.pump(0.5).decode(errors="replace"),
+        )
+        shown = " ".join(shown.split())
+        self.assertNotIn("returned", shown)
+        pane = self.client_pane(client)
+        self.assertEqual("", self.show(pane, "#{pane_mode}"), shown[-600:])
 
     def current_pane(self, client: Client) -> str:
         return self.tmux("display-message", "-c", client.tty, "-p", "#{pane_id}").stdout.strip()
