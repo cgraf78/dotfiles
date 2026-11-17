@@ -48,6 +48,8 @@ other end.
 - `prefix o` and `prefix O` copy the last one or N command output blocks
   through `tmux-tools`' `tmux-copy-last-output`, and `prefix A` pastes the
   last block into the window's agent through its `--print` mode.
+- Scripts and agents drive other panes with `tmux-tools`' `tmux-pane`: it
+  types into, reads, and waits on one exact `%N` pane (`man tmux-pane`).
 - Automatic session persistence uses TPM, `tmux-resurrect`, and
   `tmux-continuum`, installed as shdeps-managed repository checkouts.
 - Alt-Shift-[ and Alt-Shift-] mirror WezTerm tab reordering for tmux windows:

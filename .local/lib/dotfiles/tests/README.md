@@ -76,6 +76,10 @@ binaries for every platform leg. The Termux leg installs both through `dot
 update` but does not require the relay: Termnav ships no Android x86_64
 binary for the CI emulator.
 
+The same flag makes agent-rules-test fail instead of skipping when
+tmux-tools' `tmux-pane` is missing: it checks every `tmux-pane` reference in
+the rules and playbooks against `tmux-pane --interface`.
+
 The tmux suites settle their tmux once, through `_test_require_tmux` in
 `helpers.sh`: without a tmux that meets `tmux.conf`'s `# tmux minimum:`
 floor, their real-tmux coverage reports one skip, and every CI job that
