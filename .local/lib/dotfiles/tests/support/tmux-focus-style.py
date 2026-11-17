@@ -2865,6 +2865,15 @@ class LeafStyleTest(unittest.TestCase):
     def skip_without_guard(self) -> None:
         if not self.tmux_at_least(3, 4):
             self.skipTest("the oversized-client guard needs tmux 3.4")
+        # A rendered, active client can still have a synchronous attach hook
+        # running. Resizing another client then is outside the guard's
+        # documented contract, so observe the end of the real attach queue.
+        self.tmux(
+            "set-hook",
+            "-g",
+            "client-attached[999]",
+            "set-option -gF @test_client_attached '#{hook_client}'",
+        )
         # Record the widest any window gets, so a window that grew toward the
         # bad client and shrank back still fails.
         self.tmux("set-option", "-g", "@test_widest", "0")
@@ -2876,22 +2885,31 @@ class LeafStyleTest(unittest.TestCase):
             "'#{?#{e|>:#{window_width},#{@test_widest}},#{window_width},#{@test_widest}}'",
         )
 
+    def attached_client(self) -> Client:
+        """Return a guard fixture client only after its attach hooks finish."""
+        # The next PTY may reuse a closed client's name; require a fresh hook
+        # event rather than accepting that client's matching marker.
+        self.tmux("set-option", "-gu", "@test_client_attached")
+        client = Client(self)
+        self.clients.append(client)
+        wait_until(
+            lambda: self.global_option("@test_client_attached") == client.tty,
+            "the client's attach hooks to finish before testing its resize",
+        )
+        return client
+
     def test_an_oversized_client_is_detached_before_it_is_drawn(self) -> None:
         self.skip_without_guard()
-        healthy = Client(self)
-        self.clients.append(healthy)
+        healthy = self.attached_client()
         window = self.window_size()
-        victim = Client(self)
-        self.clients.append(victim)
+        victim = self.attached_client()
         victim.resize(43690, 43690)
         self.assert_refused(victim, healthy, window)
 
     def test_the_guard_detaches_the_oversized_client_not_the_active_one(self) -> None:
         self.skip_without_guard()
-        victim = Client(self)
-        self.clients.append(victim)
-        healthy = Client(self)
-        self.clients.append(healthy)
+        victim = self.attached_client()
+        healthy = self.attached_client()
         window = self.window_size()
         # In real use the terminal that breaks is not the one being typed in.
         self.make_most_active(healthy)
@@ -2903,15 +2921,13 @@ class LeafStyleTest(unittest.TestCase):
         # Fill the pane: tmux reflows every written cell when it resizes.
         self.tmux("send-keys", "-t", self.active, "-l", "x" * 4000)
         window = self.window_size()
-        victim = Client(self)
-        self.clients.append(victim)
+        victim = self.attached_client()
         victim.resize(43690, 43690)
         self.assert_refused(victim, None, window)
 
     def test_a_client_attaching_with_an_oversized_terminal_is_detached(self) -> None:
         self.skip_without_guard()
-        healthy = Client(self)
-        self.clients.append(healthy)
+        healthy = self.attached_client()
         window = self.window_size()
         victim = Client(self, size=(43690, 43690), wait=False)
         self.clients.append(victim)
@@ -2919,8 +2935,7 @@ class LeafStyleTest(unittest.TestCase):
 
     def test_the_size_limit_is_4000_cells_each_way(self) -> None:
         self.skip_without_guard()
-        healthy = Client(self)
-        self.clients.append(healthy)
+        healthy = self.attached_client()
         for rows, columns, kept in (
             (50, 4000, True),
             (4000, 80, True),
@@ -2930,8 +2945,7 @@ class LeafStyleTest(unittest.TestCase):
             with self.subTest(size=f"{columns}x{rows}"):
                 self.tmux("set-option", "-gu", "@oversized_client_detached")
                 window = self.window_size()
-                client = Client(self)
-                self.clients.append(client)
+                client = self.attached_client()
                 client.resize(rows, columns)
                 if not kept:
                     self.assert_refused(client, healthy, window)
@@ -2953,8 +2967,7 @@ class LeafStyleTest(unittest.TestCase):
 
     def test_the_guard_skips_a_connection_that_has_not_identified(self) -> None:
         self.skip_without_guard()
-        client = Client(self)
-        self.clients.append(client)
+        client = self.attached_client()
         # A tmux command that has connected but not yet identified itself is
         # a client with no name. Hold one open while the guard's hook runs.
         # The server accepts connections in order, so once a later command
