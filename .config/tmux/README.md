@@ -275,13 +275,13 @@ done mark on it stays.
 ### Agent picker
 
 `prefix C-a` opens `tmux-tools`' `tmux-agent-picker`: an fzf popup listing
-every pane on this server that needs attention or runs an agent, most urgent first,
-with a preview, and Enter jumps to the one you pick in any session; `man
-tmux-agent-picker` describes the rows, the preview and the jump. This config
-supplies the options it reads: its red, yellow and green rows are `prefix a`'s
-list in `prefix a`'s order, blue is `@pane_jump_working` (a busy pane away
-from its shell prompt, or a working nested layer), and idle agents are the
-programs `@agent_names` lists.
+every pane on this server that needs attention or runs an agent, most urgent
+first, with a preview, and Enter jumps to the one you pick in any session;
+`man tmux-agent-picker` describes the rows, the preview and the jump. This
+config supplies the options it reads: its red, yellow and green rows are
+`prefix a`'s list in `prefix a`'s order, blue is `@pane_jump_working` (a busy
+pane away from its shell prompt, or a working nested layer), and idle agents
+are the programs `@agent_names` lists.
 Where `prefix a` steps through attention one pane at a time and the status bar
 names the other sessions that need it, the picker shows everything at once,
 idle agents included.
