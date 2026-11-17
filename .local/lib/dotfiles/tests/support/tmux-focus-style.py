@@ -1388,27 +1388,74 @@ class LeafStyleTest(unittest.TestCase):
             outer_session = self.tmux(
                 "display-message", "-p", "-t", host, "#{session_id}", check=False
             ).stdout.strip()
-            try:
-                publish = subprocess.run(
-                    [publisher, "--socket", str(self.socket), "--session", outer_session],
-                    env=self.environment,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    check=False,
-                )
-                rerun = f"exited {publish.returncode}, stderr {publish.stderr.strip()!r}"
-            except subprocess.TimeoutExpired:
-                rerun = "timed out after 10 s"
+            rerun = self.rerun_publisher(publisher, outer_session, terminal, field, value)
             self.fail(
                 f"terminal never saw {field}={value} (inner mark {inner_mark!r}, "
                 f"outer lease {outer_lease!r}, outer waiting {outer_waiting!r}, "
-                f"hook published {outer_seen!r}; publisher rerun {rerun}): {bytes(output)!r}"
+                f"hook published {outer_seen!r}; {rerun}): {bytes(output)!r}"
             )
 
         reaches(["set-option", *pane, "done"], "pending", 1)
         reaches(["set-option", *pane, "waiting"], "waiting", 1)
         reaches(["set-option", "-u", *pane], "pending", 0)
+
+    def rerun_publisher(
+        self, publisher: str, session: str, terminal: Client, field: str, value: int
+    ) -> str:
+        """Say why a relay frame went missing, for the failure message only.
+
+        The hook's run-shell discards the publisher's output, so run the same
+        command again, traced, while this test keeps reading the terminal:
+        whether its frame arrives now tells a dropped write from a publisher
+        that sends nothing. Termnav writes each frame without blocking, within
+        100 ms that include proving the client owns its terminal, which on
+        hosts without /proc is a ps run, so time that too.
+        """
+        frame = re.compile(rb"\x1b\]1337;SetUserVar=TERM_PANE_STATE=([A-Za-z0-9+/=]+)\x07")
+        trace = self.root / "publisher-trace"
+        started = time.monotonic()
+        late = bytearray()
+        with trace.open("wb") as stderr:
+            rerun = subprocess.Popen(
+                ["bash", "-x", publisher, "--socket", str(self.socket), "--session", session],
+                env=self.environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr,
+            )
+            while rerun.poll() is None and time.monotonic() - started < 10:
+                late.extend(terminal.pump(0.05))
+            if rerun.poll() is None:
+                rerun.kill()
+                rerun.wait()
+                result = "timed out after 10 s"
+            else:
+                result = f"exited {rerun.returncode} in {time.monotonic() - started:.2f} s"
+        late.extend(terminal.pump(0.5))
+        arrived = any(
+            json.loads(base64.b64decode(match[1])).get(field) == value
+            for match in frame.finditer(late)
+        )
+        steps = [
+            line.strip()
+            for line in trace.read_text(errors="replace").splitlines()
+            if "termnav tmux attention" in line or "status=" in line
+        ]
+        timings = []
+        for _ in range(3):
+            began = time.monotonic()
+            subprocess.run(
+                ["ps", "-p", str(terminal.pid), "-o", "pgid=", "-o", "tpgid="],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            timings.append(time.monotonic() - began)
+        return (
+            f"publisher rerun {result}, its frame arrived {arrived}, "
+            f"ps for the client took {max(timings) * 1000:.0f} ms at most, "
+            f"trace {steps[-12:]!r}"
+        )
 
     def test_attaching_shows_no_error(self) -> None:
         """A client attach shows no failed command and no config error.
