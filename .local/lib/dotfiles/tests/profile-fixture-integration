@@ -559,7 +559,11 @@ assert_suite_discovery() {
 
 assert_tmux_composition() {
   local profile=$1 home=$2 socket keys prefix_keys move left open_link output
-  command -v tmux >/dev/null 2>&1 || return 0
+  local reported floor
+  # An older tmux refuses this config; tmux-test reports that once.
+  reported=$(tmux -V 2>/dev/null) || return 0
+  floor=$(DOT_TEST_SOURCE_HOME=$home _tmux_floor)
+  [[ -n $floor ]] && _tmux_at_least "$reported" "$floor" || return 0
   socket=dot-profile-$profile-$$
   if ! output=$(run_in_home "$home" tmux -L "$socket" -f /dev/null \
     new-session -d 'sleep 30' 2>&1); then

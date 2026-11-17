@@ -12,8 +12,10 @@ tmux_config=$HOME/.config/tmux/tmux.conf
 editor_fragment=$HOME/.config/tmux/conf.d/20-editor.conf
 [[ -f $editor_fragment ]] ||
   _test_skip_suite 'editor overlay is not active'
-command -v tmux >/dev/null 2>&1 ||
-  _test_skip_suite 'tmux is not installed'
+if ! _test_require_tmux 'tmux compatibility'; then
+  _test_summary
+  exit
+fi
 
 socket=$(_tmux_socket) || exit 1
 CLEANUP_DIRS+=("${socket%/*}")

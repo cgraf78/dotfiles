@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import itertools
 import os
 import pathlib
 import pty
@@ -21,6 +20,7 @@ import termios
 import time
 import unittest
 
+import tmux_version
 from tmux_paths import short_temporary_parent
 
 
@@ -372,15 +372,10 @@ exec /bin/sh "$@"
 """
 
 
-def tmux_version() -> tuple[int, int]:
-    """Return tmux's (major, minor); builds without a version number count as current."""
+def tmux_at_least(major: int, minor: int) -> bool:
+    """Whether this tmux is MAJOR.MINOR or newer, by the shared version rule."""
     text = subprocess.run(["tmux", "-V"], text=True, capture_output=True).stdout
-    version = text.split()[-1].removeprefix("next-") if text.split() else ""
-    major, _, rest = version.partition(".")
-    minor = "".join(itertools.takewhile(str.isdigit, rest))
-    if not major.isdigit():
-        return (99, 0)
-    return int(major), int(minor or 0)
+    return tmux_version.at_least(text, (major, minor))
 
 
 class AppRoutingFixture(unittest.TestCase):
@@ -633,7 +628,7 @@ class ClickRoutingTest(AppRoutingFixture):
         self.assertEqual(self.mode(pane), "copy-mode")
 
     def test_browser_links_go_to_termnav_and_file_links_stay(self) -> None:
-        if tmux_version() < (3, 4):
+        if not tmux_at_least(3, 4):
             self.skipTest("tmux before 3.4 has no mouse_hyperlink")
         for name in ("nvim", "ssh"):
             with self.subTest(app=name):
@@ -705,8 +700,7 @@ class ImagePasteRoutingTest(AppRoutingFixture):
                 ]
             ],
         )
-        if tmux_version() >= (3, 3):
-            wait_until(lambda: self.shown("Pasting image"), "the popup title")
+        wait_until(lambda: self.shown("Pasting image"), "the popup title")
         self.paste_release.touch()
         self.assertNotIn(IMAGE_PASTE_TRIGGER, log.read_bytes(), "the app must not see it")
 

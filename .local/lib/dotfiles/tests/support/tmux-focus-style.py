@@ -26,6 +26,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+import tmux_version
 from tmux_paths import short_temporary_parent
 
 
@@ -526,34 +527,6 @@ class LeafStyleTest(unittest.TestCase):
         """Return the parsed global hook exactly as tmux will execute it."""
         return self.tmux("show-hooks", "-g", name).stdout.strip()
 
-    def supports_hook(self, name: str) -> bool:
-        """Probe hook support without treating a missing production hook as old tmux."""
-        probe = f"{name}[999999]"
-        self.tmux(
-            "set-hook",
-            "-g",
-            probe,
-            "display-message -p dot-test-probe",
-            check=False,
-        )
-        result = self.tmux("show-hooks", "-g", name, check=False)
-        self.tmux("set-hook", "-gu", probe, check=False)
-        return result.returncode == 0 and probe in result.stdout
-
-    def supports_client_format_context(self, tty: str) -> bool:
-        """Return whether display-message can evaluate for a specific client."""
-        return (
-            self.tmux(
-                "display-message",
-                "-c",
-                tty,
-                "-p",
-                "#{client_tty}",
-                check=False,
-            ).returncode
-            == 0
-        )
-
     def claim_child(self) -> None:
         """Apply the pane state that Termnav publishes for a focused child."""
         if self.focus is not None:
@@ -673,8 +646,6 @@ class LeafStyleTest(unittest.TestCase):
         return red, green, blue
 
     def test_focus_hooks_are_client_scoped_and_ignore_control_mode(self) -> None:
-        if not self.supports_hook("client-focus-in"):
-            self.skipTest("tmux does not expose client focus hooks")
         start_hooks = self.hook("client-attached") + "\n" + self.hook("client-focus-in")
         stop_hooks = self.hook("client-focus-out") + "\n" + self.hook("client-detached")
         sync_hooks = (
@@ -685,13 +656,9 @@ class LeafStyleTest(unittest.TestCase):
             + self.hook("client-session-changed")
         )
         # Notification hooks can expand #{client_*} for another client, so they
-        # name the client that raised them. tmux 3.2 lacks #{hook_client}, so
-        # the exact identity stays as a fallback behind the control-mode guard.
-        client = (
-            "#{?hook_client,--client-name #{q:hook_client},"
-            "--client-pid #{client_pid} --client-tty #{q:client_tty}}"
-        )
-        guard = "#{||:#{hook_client},#{==:#{client_control_mode},0}}"
+        # name the client that raised them, and do nothing when none is named.
+        client = "--client-name #{q:hook_client}"
+        guard = "#{!=:#{hook_client},}"
         for name in (
             "client-attached",
             "client-focus-in",
@@ -718,8 +685,6 @@ class LeafStyleTest(unittest.TestCase):
     def test_styles_follow_each_client_and_child_claim(self) -> None:
         first = Client(self)
         self.clients.append(first)
-        if not self.supports_client_format_context(first.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         second = Client(self)
         self.clients.append(second)
         first.set_focus(True)
@@ -822,12 +787,8 @@ class LeafStyleTest(unittest.TestCase):
         return pane
 
     def test_pending_panes_are_marked_until_visited(self) -> None:
-        if not self.supports_hook("pane-focus-in"):
-            self.skipTest("tmux does not expose pane focus hooks")
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         tab = "window-status-current-format"
 
@@ -909,8 +870,6 @@ class LeafStyleTest(unittest.TestCase):
         """term-pane-state rejects a whole snapshot if a pane breaks these."""
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         shell = self.program_pane("zsh")
         predicates = "#{E:@pane_pending}#{E:@pane_waiting}#{E:@pane_failed}#{E:@pane_busy}"
@@ -968,12 +927,8 @@ class LeafStyleTest(unittest.TestCase):
                 self.tmux("set-option", "-pu", "-t", pane, option)
 
     def test_a_glance_keeps_attention_that_needs_an_action(self) -> None:
-        if not self.supports_hook("pane-focus-in"):
-            self.skipTest("tmux does not expose pane focus hooks")
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         tab = "window-status-current-format"
         agent = self.program_pane("claude")
@@ -1048,12 +1003,8 @@ class LeafStyleTest(unittest.TestCase):
         self.assertEqual("blocked", self.pending(background))
 
     def test_sticky_attention_ends_with_its_agent(self) -> None:
-        if not self.supports_hook("pane-focus-in"):
-            self.skipTest("tmux does not expose pane focus hooks")
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         tab = "window-status-current-format"
 
@@ -1084,8 +1035,6 @@ class LeafStyleTest(unittest.TestCase):
     def test_background_window_agents_mark_their_tab(self) -> None:
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         # An agent alone in a background window is that window's active pane,
         # which the focused-leaf predicate alone would treat as being looked at.
@@ -1110,12 +1059,8 @@ class LeafStyleTest(unittest.TestCase):
         )
 
     def test_another_focused_client_does_not_strand_a_mark(self) -> None:
-        if not self.supports_hook("client-focus-in"):
-            self.skipTest("tmux does not expose client focus hooks")
         first = Client(self)
         self.clients.append(first)
-        if not self.supports_client_format_context(first.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         # The second client never reports focus, like an idle second machine,
         # so it keeps the active pane focused server-wide and the first
         # client's return fires no pane-focus transition.
@@ -1205,9 +1150,8 @@ class LeafStyleTest(unittest.TestCase):
         publishes(
             session, "publish on select-pane", lambda: self.tmux("select-pane", "-t", self.active)
         )
-        if self.supports_hook("client-focus-in"):
-            publishes(session, "publish on focus-out", lambda: client.set_focus(False))
-            publishes(session, "publish on focus-in", lambda: client.set_focus(True))
+        publishes(session, "publish on focus-out", lambda: client.set_focus(False))
+        publishes(session, "publish on focus-in", lambda: client.set_focus(True))
         # Visiting the only marked pane acknowledges it before the guard above
         # runs; the acknowledgement itself must publish the cleared mark.
         self.tmux("set-option", "-p", "-t", self.inactive, "@term_notify_pending", "done")
@@ -1561,10 +1505,6 @@ class LeafStyleTest(unittest.TestCase):
         attach hook's Termnav call failed with "returned 127" on hosts without
         Termnav, and tmux before 3.6 rejected the pane-scrollbars option.
         """
-        # tmux 3.2 lacks the client focus hooks this config sets and lists
-        # those errors in that view, over anything else it would show.
-        if not self.supports_hook("client-focus-in"):
-            self.skipTest("tmux does not expose client focus hooks")
         home = pathlib.Path(self.environment.get("HOME", "/nonexistent"))
         if (home / ".local/bin/termnav").exists():
             self.skipTest("this HOME has ~/.local/bin/termnav")
@@ -1607,8 +1547,6 @@ class LeafStyleTest(unittest.TestCase):
     def test_prefix_a_visits_pending_panes_in_order(self) -> None:
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         waiting = self.program_pane("claude")
         blocked = self.program_pane("codex", window=True)
@@ -1665,8 +1603,9 @@ class LeafStyleTest(unittest.TestCase):
     def client_format(self, client: Client, template: str) -> str:
         """Expand TEMPLATE for CLIENT, its session and its current pane.
 
-        list-clients gives that context on tmux 3.2 too, where
-        display-message -c cannot.
+        list-clients gives each client its own context; display-message -c
+        answers for the most recently active client when the named one has no
+        session target.
         """
         listing = self.tmux("-u", "list-clients", "-F", f"#{{client_tty}}\t{template}").stdout
         for line in listing.splitlines():
@@ -1805,7 +1744,7 @@ class LeafStyleTest(unittest.TestCase):
         their_window = self.client_format(theirs, "#{window_id}")
         self.tmux("set-option", "-p", "-t", target, "@term_notify_pending", "waiting")
         # Jump from the pane menu while the other client types: a key chosen in
-        # a menu does not count as activity on tmux 3.2 and 3.4, so the peer is
+        # a menu does not count as activity on tmux 3.4, so the peer is
         # then the most recently active session, the one tmux would pick for a
         # bare pane id.
         mine.send(b"\x02>")
@@ -2165,8 +2104,6 @@ class LeafStyleTest(unittest.TestCase):
     def test_prefix_j_and_J_move_panes_between_windows(self) -> None:
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         other = self.tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30").stdout.strip()
         home = self.window_of(self.active)
 
@@ -2215,8 +2152,6 @@ class LeafStyleTest(unittest.TestCase):
         """
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         stub = self.root / "bin"
         stub.mkdir()
@@ -2533,8 +2468,8 @@ class LeafStyleTest(unittest.TestCase):
 
         prefix o and the pane menu hand clip the pressing client. Asked by
         display-message -c, tmux answers for the most recently active client
-        instead, and tmux 3.2 takes no argument to -c at all, so the copy
-        failed whenever a client of another session had typed since.
+        instead, so the copy failed whenever a client of another session had
+        typed since.
         """
         if self.clip is None:
             self.skipTest("client copies require candidate clip")
@@ -2582,8 +2517,6 @@ class LeafStyleTest(unittest.TestCase):
         """
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         work = self.root / "work dir"
         work.mkdir()
@@ -2637,8 +2570,6 @@ class LeafStyleTest(unittest.TestCase):
         """
         client = Client(self)
         self.clients.append(client)
-        if not self.supports_client_format_context(client.tty):
-            self.skipTest("tmux does not support client-targeted format expansion")
         client.set_focus(True)
         work = self.root / 'task "q" dir'
         work.mkdir()
@@ -2971,8 +2902,7 @@ class LeafStyleTest(unittest.TestCase):
         self.assertEqual("", self.global_option("@oversized_client_detached"))
 
     # Right-click menus and the command palette. These cases read client
-    # state through list-clients, which every supported tmux targets
-    # correctly (tmux 3.2 cannot aim display-message -c at a client).
+    # state through list-clients, which answers for each client exactly.
     def client_pane(self, client: Client) -> str:
         rows = self.tmux("list-clients", "-F", "#{client_tty} #{pane_id}").stdout.splitlines()
         return next((row.split()[1] for row in rows if row.split()[0] == client.tty), "")
@@ -2991,14 +2921,8 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(drawn, description)
 
     def tmux_at_least(self, major: int, minor: int) -> bool:
-        """Compare this tmux's version; a build from git ("tmux master") is newest."""
-        version = self.tmux("-V").stdout
-        match = re.search(r"(\d+)\.(\d+)", version)
-        if match is None:
-            if "master" in version:
-                return True
-            raise AssertionError(f"unrecognised tmux version {version!r}")
-        return (int(match[1]), int(match[2])) >= (major, minor)
+        """Whether this tmux is MAJOR.MINOR or newer, by the shared version rule."""
+        return tmux_version.at_least(self.tmux("-V").stdout, (major, minor))
 
     def right_click(
         self, client: Client, x: int, y: int, *, meta: bool = False, opens: bytes = b""
@@ -3144,9 +3068,6 @@ class LeafStyleTest(unittest.TestCase):
         wait_until(lambda: task_window() != "", "the task window opens")
         task_panes = self.tmux("list-panes", "-t", task_window(), "-F", "#{pane_id}").stdout.split()
         self.assertEqual(2, len(task_panes))
-        # The shell pane splits from #{pane_start_path}, which tmux 3.2 lacks.
-        if not self.tmux_at_least(3, 3):
-            task_panes = task_panes[:1]
         for task_pane in task_panes:
             wait_until(
                 lambda task_pane=task_pane: (
@@ -3309,7 +3230,7 @@ class LeafStyleTest(unittest.TestCase):
         self.wait_drawn(client, b"Rename...", "the moved tab's menu opens")
         client.send(b",")
         self.wait_drawn(client, b"three", "the prompt starts from the clicked window's name")
-        # A quote in the answer stays data (tmux 3.2 reparses the template).
+        # A quote in the answer stays data.
         client.send(b'!"\r')
         wait_until(
             lambda: self.show(third, "#{window_name}") == 'three!"', "the clicked window is renamed"

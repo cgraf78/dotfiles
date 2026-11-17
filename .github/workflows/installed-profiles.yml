@@ -179,6 +179,8 @@ jobs:
           # the exact commit the checkout above resolved it to.
           candidate_sha=$(git rev-parse HEAD)
           export DOTFILES_CANDIDATE_SHA=$candidate_sha
+          # The installed homes' tmux suites must run, not skip.
+          export DOT_TEST_REQUIRE_TMUX=1
           .local/lib/dotfiles/tests/checkout-ci-candidate
           # Same floating release as the Tests workflow's test-command.
           . .local/lib/dotfiles/tests/dot-runtime-resolve.sh

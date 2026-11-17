@@ -48,7 +48,8 @@ source ~/.bashrc  # or: source ~/.zshrc
   ```
 
 It needs `curl` and `git`, plus Homebrew on macOS. macOS also requires Bash
-4+ (`brew install bash`). The system Bash 3.2 is too old.
+4+ (`brew install bash`). The system Bash 3.2 is too old. The tmux config
+needs tmux 3.3 or newer, which the bootstrap installs.
 
 ## Related repos
 

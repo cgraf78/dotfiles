@@ -26,6 +26,9 @@ jobs:
       test-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        # Every leg installs a supported tmux, so a suite that would skip
+        # its real-tmux coverage fails instead.
+        export DOT_TEST_REQUIRE_TMUX=1
         .local/lib/dotfiles/tests/checkout-ci-candidate
         # Post-cutover the engine ships only as a native binary and the matrix
         # images carry no Rust toolchain: resolve the control-plane runtime
@@ -65,6 +68,7 @@ jobs:
       termux-command: |-
         set -euo pipefail
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
+        export DOT_TEST_REQUIRE_TMUX=1
         # Same floating control-plane release as test-command (see above).
         # This job makes one runtime resolution, so `latest` is already
         # frozen for this job. (Each matrix job resolves independently.)
