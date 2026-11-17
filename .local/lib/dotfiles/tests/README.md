@@ -80,6 +80,14 @@ The same flag makes agent-rules-test fail instead of skipping when
 tmux-tools' `tmux-pane` is missing: it checks every `tmux-pane` reference in
 the rules and playbooks against `tmux-pane --interface`.
 
+The tmux suites settle their tmux once, through `_test_require_tmux` in
+`helpers.sh`: without a tmux that meets `tmux.conf`'s `# tmux minimum:`
+floor, their real-tmux coverage reports one skip, and every CI job that
+installs tmux exports `DOT_TEST_REQUIRE_TMUX=1` so that fails instead. When
+shared CI sets `CI_TMUX_FLOOR` it must match the floor, and under
+`CI_TMUX_FLOOR_EXACT=1` (the leg that builds the floor release) tmux must be
+exactly that release.
+
 Emergency rollback: if a broken Dot release reds CI, temporarily set an
 explicit tag instead of resolving latest (`DOT_STACK_DOT_RELEASE_TAG` and
 `DOT_TEST_DOT_RELEASE_TAG` both accept one; the live suite takes a

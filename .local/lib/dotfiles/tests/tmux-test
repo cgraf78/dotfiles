@@ -82,13 +82,11 @@ _assert_eq "tmux: no session loop uses the current-session form tmux 3.6b crashe
 # The pane menu opens above the pointer only while it fits there: an 80x24
 # terminal has 23 rows above the status line. Count its rows as tmux draws
 # them over a word and a line (no link, not in a mode): hidden items drop
-# out, a separator never leads, and the border adds two. tmux 3.3 and later
-# also collapse a separator that follows another; tmux 3.2 draws both, so it
-# draws one more row here. 22 rows where separators collapse keeps a row
-# spare; the tmux 3.2 count must still fit the 23. Items may be single- or
-# double-quoted, and the count ends with the block's last line.
+# out, a separator never leads or follows another, and the border adds two.
+# 22 rows keeps a row spare. Items may be single- or double-quoted, and the
+# count ends with the block's last line.
 pane_menu_rows() {
-  awk -v q="'" -v dq='\\"' -v collapse="$1" '
+  awk -v q="'" -v dq='\\"' '
     /^%hidden pane_menu_items=/ { on = 1; rows = 2; prev = "none"; next }
     !on { next }
     {
@@ -103,7 +101,7 @@ pane_menu_rows() {
       }
       if (close_quote == "") {
       } else if (index(label, close_quote) == 1) {
-        if (prev != "none" && !(collapse && prev == "line")) { rows++; prev = "line" }
+        if (prev != "none" && prev != "line") { rows++; prev = "line" }
       } else if (index(label, "#{?mouse_hyperlink,") != 1 &&
         index(label, "#{?#{m/r:(copy|view)-mode,") != 1) {
         rows++; prev = "item"
@@ -112,25 +110,19 @@ pane_menu_rows() {
     }
   ' "$tmux_base"
 }
-pane_menu_rows=$(pane_menu_rows 1)
-pane_menu_rows_32=$(pane_menu_rows 0)
+pane_menu_rows=$(pane_menu_rows)
 if [[ $pane_menu_rows =~ ^[0-9]+$ ]] && ((pane_menu_rows >= 10 && pane_menu_rows <= 22)); then
   _pass "tmux: the pane menu fits above the pointer in 80x24 ($pane_menu_rows rows)"
 else
   _fail "tmux: the pane menu fits above the pointer in 80x24 (counted '${pane_menu_rows}' rows, budget 22)"
-fi
-if [[ $pane_menu_rows_32 =~ ^[0-9]+$ ]] && ((pane_menu_rows_32 <= 23)); then
-  _pass "tmux: the pane menu fits in 80x24 on tmux 3.2 ($pane_menu_rows_32 rows)"
-else
-  _fail "tmux: the pane menu fits in 80x24 on tmux 3.2 (counted '${pane_menu_rows_32}' rows, limit 23)"
 fi
 pane_menu_sample=$(_tmpdir)/pane-menu.conf
 # shellcheck disable=SC1003 # The backslashes are the config's continuations.
 printf '%s\n' '%hidden pane_menu_items="\' "  '' \\" "  'One' 1 { a } \\" "  '' \\" \
   "  '#{?mouse_hyperlink,Link,}' h { b } \\" "  \\\"\\\" \\" "  \\\"Two\\\" 2 { c } \\" \
   "  'Last' 3 { d }\"" "  'After the block' 4 { e }" >"$pane_menu_sample"
-_assert_eq 'tmux: the pane menu count reads both quotes and stops at the block end' '6 7' \
-  "$(tmux_base=$pane_menu_sample pane_menu_rows 1) $(tmux_base=$pane_menu_sample pane_menu_rows 0)"
+_assert_eq 'tmux: the pane menu count reads both quotes and stops at the block end' 6 \
+  "$(tmux_base=$pane_menu_sample pane_menu_rows)"
 _assert_contains "tmux: escape delay stays bounded" \
   'set -s escape-time 10' "$tmux_content"
 _assert_contains "tmux: history is retained generously" \
@@ -202,12 +194,12 @@ _assert_contains 'tmux: context publication is skipped without Termnav' \
 _assert_contains 'tmux: focus-in starts the focus watcher' \
   'termnav tmux focus watch' "$tmux_content"
 # Notification hooks can expand #{client_*} for another client; only
-# #{hook_client} names the client that raised the event. tmux 3.2 lacks it, so
-# the exact identity remains as a guarded fallback.
+# #{hook_client} names the client that raised the event, and a hook that
+# names none does nothing.
 _assert_contains 'tmux: focus hooks name their triggering client' \
-  'tmux_focus_client="#{?hook_client,--client-name #{q:hook_client},--client-pid #{client_pid} --client-tty #{q:client_tty}}"' "$tmux_content"
-_assert_contains 'tmux: focus hooks guard only the exact-identity fallback' \
-  "tmux_focus_guard='#{||:#{hook_client},#{==:#{client_control_mode},0}}'" "$tmux_content"
+  'tmux_focus_client="--client-name #{q:hook_client}"' "$tmux_content"
+_assert_contains 'tmux: focus hooks run only for a named client' \
+  "tmux_focus_guard='#{!=:#{hook_client},}'" "$tmux_content"
 _assert_contains 'tmux: focus-out stops the focus watcher' \
   'termnav tmux focus stop' "$tmux_content"
 _assert_contains 'tmux: selection changes repair stale focus state' \
@@ -426,7 +418,238 @@ done
 _assert_not_contains 'tmux: retired parent-loopback user keys stay absent' \
   'user-keys[0]' "$tmux_content"
 
-if command -v tmux >/dev/null 2>&1; then
+echo "=== tmux floor ==="
+
+# The floor's one statement is tmux.conf's "# tmux minimum:" marker, directly
+# above the guard; everything below derives from it.
+tmux_floor=$(_tmux_floor)
+_assert_eq 'tmux: tmux.conf states its floor once' 1 \
+  "$(grep -c '^# tmux minimum: ' "$tmux_config")"
+_assert_eq 'tmux: the floor marker sits directly above the version guard' '%if "#{||:' \
+  "$(awk 'found { print substr($0, 1, 10); exit } /^# tmux minimum: / { found = 1 }' "$tmux_config")"
+floor_major=${tmux_floor%%.*}
+floor_minor=${tmux_floor#*.}
+# The canonical vectors, shared verbatim by every repository that checks the
+# tmux floor: each version and how it reads (MAJOR.MINOR, newest or
+# unknown). Whether each is supported follows from the floor, so the table
+# holds no floor; rows at the floor's own edge are generated from it.
+tmux_vectors='1.8:1.8 2.9a:2.9 next-2.9:2.9 3.0:3.0 3.1c:3.1 3.2:3.2
+3.2a:3.2 3.2-rc3:3.2 next-3.2:3.2 next-3.2-rc:3.2 3.3:3.3 3.3a:3.3 3.3-rc:3.3
+next-3.3:3.3 3.4:3.4 3.10:3.10 next-3.10:3.10 master:newest
+openbsd-7.6:newest openbsd-7.6-current:newest 3.x:unknown 3.:unknown foo-2.9:unknown :unknown'
+if [[ $floor_major =~ ^[0-9]+$ && $floor_minor =~ ^[0-9]+$ ]] && ((floor_minor > 0)); then
+  below=$floor_major.$((floor_minor - 1))
+  above=$floor_major.$((floor_minor + 1))
+  tmux_vectors+=" $below:$below ${below}a:$below $below-rc:$below"
+  tmux_vectors+=" next-$below:$below $tmux_floor:$tmux_floor $above:$above"
+  # The next major's first release, which a comparison of the minor alone
+  # would refuse.
+  next_major=$((floor_major + 1)).0
+  tmux_vectors+=" $next_major:$next_major"
+else
+  _fail "tmux: the floor-edge rows cannot express the floor '$tmux_floor'"
+fi
+# Print yes or no for each vector, as the floor rule says.
+tmux_vector_wants() {
+  local vector reads major minor
+  for vector in $tmux_vectors; do
+    reads=${vector##*:}
+    case $reads in
+      newest | unknown) echo yes ;;
+      *)
+        major=${reads%%.*} minor=${reads#*.}
+        if ((major > floor_major || (major == floor_major && minor >= floor_minor))); then
+          echo yes
+        else
+          echo no
+        fi
+        ;;
+    esac
+  done
+}
+for vector in $tmux_vectors; do
+  version=${vector%:*}
+  reads=${vector##*:}
+  case $reads in newest | unknown) want=newest ;; *) want="${reads%%.*} ${reads#*.}" ;; esac
+  _assert_eq "tmux: the version rule reads '$version'" "$want" "$(_tmux_release "$version")"
+done
+tmux_rule_verdicts=$(for vector in $tmux_vectors; do
+  if _tmux_supported "${vector%:*}"; then echo yes; else echo no; fi
+done)
+_assert_eq 'tmux: the bash helper follows the floor on every vector' \
+  "$(tmux_vector_wants)" "$tmux_rule_verdicts"
+_assert_eq "tmux: tmux -V's prefix does not change a verdict" "$tmux_rule_verdicts" \
+  "$(for vector in $tmux_vectors; do
+    if _tmux_supported "tmux ${vector%:*}"; then echo yes; else echo no; fi
+  done)"
+# The PTY drivers' Python rule gives the same verdicts, reading the floor
+# from the same marker.
+if command -v python3 >/dev/null 2>&1; then
+  # shellcheck disable=SC2086 # One vector per line.
+  _assert_eq 'tmux: the Python helper follows the floor on every vector' \
+    "$(tmux_vector_wants)" \
+    "$(printf '%s\n' $tmux_vectors | PYTHONDONTWRITEBYTECODE=1 \
+      PYTHONPATH="${BASH_SOURCE[0]%/*}/support" DOT_TEST_SOURCE_HOME="$source_home" \
+      python3 -c '
+import sys
+import tmux_version
+for line in sys.stdin:
+    version = line.rstrip("\n").rpartition(":")[0]
+    print("yes" if tmux_version.supported(version) else "no")
+')"
+fi
+# The tmux shdeps installs meets the floor.
+shdeps_tmux=$(sed -n 's/^_TMUX_VERSION=//p' "$source_home/.config/shdeps/hooks.d/tmux.sh")
+if [[ -n $shdeps_tmux ]] && _tmux_supported "$shdeps_tmux"; then
+  _pass "tmux: shdeps installs tmux $shdeps_tmux, which meets the floor"
+else
+  _fail "tmux: shdeps installs tmux '$shdeps_tmux', which meets the floor $tmux_floor"
+fi
+# The documents that state the floor say the same.
+for doc in .config/tmux/README.md .github/README.md; do
+  _assert_contains "tmux: $doc states the floor" "tmux $tmux_floor or newer" \
+    "$(tr '\n' ' ' <"$source_home/$doc")"
+done
+# Both refusal messages, the status line and the attach hook, name it.
+_assert_eq 'tmux: both refusal messages name the floor' 2 \
+  "$(grep -c "This tmux config needs tmux $tmux_floor or newer; this is #{version}" "$tmux_config")"
+_assert_eq 'tmux: the refusal names no other floor' 2 \
+  "$(grep -c 'This tmux config needs tmux ' "$tmux_config")"
+
+# _test_require_tmux, against a stand-in tmux reporting STUB_TMUX: print its
+# return status and the pass and fail counts it added, as "rc pass fail".
+require_stub=$(_tmpdir)
+# shellcheck disable=SC2016 # The stub expands STUB_TMUX when it runs.
+printf '%s\n' '#!/bin/sh' 'echo "tmux $STUB_TMUX"' >"$require_stub/tmux"
+chmod +x "$require_stub/tmux"
+require_probe() {
+  (
+    PATH="$require_stub:$PATH" PASS=0 FAIL=0
+    _test_require_tmux 'require probe' >/dev/null 2>&1
+    echo "$? $PASS $FAIL"
+  )
+}
+require_older=$floor_major.$((floor_minor - 1))a
+_assert_eq 'tmux: an older tmux fails under DOT_TEST_REQUIRE_TMUX=1' '1 0 1' \
+  "$(STUB_TMUX=$require_older DOT_TEST_REQUIRE_TMUX=1 CI_TMUX_FLOOR='' require_probe)"
+_assert_eq 'tmux: an older tmux is a skip otherwise' '1 1 0' \
+  "$(STUB_TMUX=$require_older DOT_TEST_REQUIRE_TMUX=0 CI_TMUX_FLOOR='' require_probe)"
+_assert_eq 'tmux: the floor itself is usable' '0 0 0' \
+  "$(STUB_TMUX=${tmux_floor}a DOT_TEST_REQUIRE_TMUX=1 CI_TMUX_FLOOR='' require_probe)"
+_assert_eq 'tmux: a CI floor that differs from the marker fails' '1 0 1' \
+  "$(STUB_TMUX=${tmux_floor}a CI_TMUX_FLOOR=$above CI_TMUX_FLOOR_EXACT='' require_probe)"
+_assert_eq 'tmux: CI_TMUX_FLOOR_EXACT=1 fails on another release' '1 0 1' \
+  "$(STUB_TMUX=$above CI_TMUX_FLOOR=${tmux_floor}a CI_TMUX_FLOOR_EXACT=1 require_probe)"
+_assert_eq 'tmux: CI_TMUX_FLOOR_EXACT=1 passes on that release' '0 0 0' \
+  "$(STUB_TMUX=${tmux_floor}a CI_TMUX_FLOOR=${tmux_floor}a CI_TMUX_FLOOR_EXACT=1 require_probe)"
+
+# Nothing names a tmux older than the floor: each file's lines are read with
+# comment and roff markers removed and joined, so a mention wrapped across
+# lines still reads as one. An allowed mention is history or concerns a tool
+# that works under any tmux, keyed on its file and words.
+tmux_old_mentions() {
+  LC_ALL=C awk -v floor_major="$floor_major" -v floor_minor="$floor_minor" '
+    {
+      line = $0
+      sub(/^[ \t]+/, "", line)
+      sub(/^[\/#*!;>-]+/, "", line)
+      if (substr(line, 1, 1) == ".") sub(/^\.[A-Za-z]*/, "", line)
+      sub(/^[ \t]+/, "", line)
+      sub(/[ \t]+$/, "", line)
+      text = text " " line
+    }
+    END {
+      lower = tolower(text)
+      # "older than" catches the floor stated without the word tmux, which
+      # would go stale silently after a bump.
+      keys[1] = "tmux"
+      keys[2] = "older than"
+      for (k = 1; k <= 2; k++) {
+        at = 0
+        while ((i = index(substr(lower, at + 1), keys[k])) > 0) {
+          at += i
+          rest = substr(lower, at + length(keys[k]))
+          if (substr(rest, 1, 1) == " " || substr(rest, 1, 1) == "-") rest = substr(rest, 2)
+          if (substr(rest, 1, 3) == ">= ") rest = substr(rest, 4)
+          else if (substr(rest, 1, 2) == ">=") rest = substr(rest, 3)
+          else if (substr(rest, 1, 7) == "before ") rest = substr(rest, 8)
+          else if (substr(rest, 1, 1) == "v") rest = substr(rest, 2)
+          if (!match(rest, /^[0-9]+\.[0-9]+/)) continue
+          split(substr(rest, 1, RLENGTH), part, ".")
+          if (part[1] + 0 < floor_major + 0 ||
+            (part[1] + 0 == floor_major + 0 && part[2] + 0 < floor_minor + 0)) {
+            print substr(text, at, 40)
+          }
+        }
+      }
+    }' "$@"
+}
+_assert_eq 'tmux: the old-mention scan reads across lines and markers' 3 \
+  "$(printf '%s\n' 'needs tmux' "# 3.${floor_minor}a or tmux >= $floor_major.0," \
+    ".B tmux" "before 1.9 and tmux v$((floor_major - 1)).0" | tmux_old_mentions |
+    wc -l | tr -d ' ')"
+_assert_eq 'tmux: the old-mention scan passes the floor and later' '' \
+  "$(printf '%s\n' "tmux $tmux_floor, tmux $floor_major.$((floor_minor + 7))," \
+    "older than $tmux_floor, Bash 3.2" | tmux_old_mentions)"
+_assert_eq 'tmux: the old-mention scan reads "older than" without tmux' 1 \
+  "$(printf '%s\n' 'The server is older' "# than $floor_major.$((floor_minor - 1))." |
+    tmux_old_mentions | wc -l | tr -d ' ')"
+# Mentions that are history, upstream text, or about a tool that works
+# under any tmux rather than about this config's floor.
+tmux_mention_allowed=(
+  '.local/bin/browser-open:tmux 3.2; retry without it'
+  '.config/tmux/README.md:tmux 2.7, the first with'
+  '.config/tmux/README.md:tmux 2.6 and older load'
+  '.config/shell/interactive.d/59-prompt.sh:tmux before 3.2, which sets no'
+  '.config/atuin/config.toml:tmux >= 3.2) When enabled'
+  'docs/superpowers/plans/2026-10-30-working-tab-spinner.md:tmux 3.2a format parsing'
+)
+# Every tracked file, so no directory can drop out of the scan: a worktree
+# or clone has .git, an installed home the separate .dotfiles repository.
+tmux_tracked() {
+  if [[ -e $source_home/.git || -L $source_home/.git ]]; then
+    git -C "$source_home" ls-files -z
+  else
+    git --git-dir="$source_home/.dotfiles" --work-tree="$source_home" ls-files -z
+  fi
+}
+if [[ ! -e $source_home/.git && ! -L $source_home/.git && ! -d $source_home/.dotfiles ]]; then
+  # CI always has a checkout, so the scan can never be skipped there.
+  if [[ -n ${GITHUB_ACTIONS:-} ]]; then
+    _fail 'tmux: the old-mention scan needs a Git checkout under GitHub Actions'
+  else
+    _pass 'tmux: not a Git checkout, old-mention scan skipped'
+  fi
+else
+  tmux_tracked_list=$(_tmpfile)
+  if ! tmux_tracked >"$tmux_tracked_list"; then
+    _fail 'tmux: git ls-files lists the files to scan'
+  elif ! tr '\0' '\n' <"$tmux_tracked_list" | grep -qx '\.config/tmux/tmux\.conf'; then
+    _fail 'tmux: git ls-files lists .config/tmux/tmux.conf'
+  else
+    tmux_offenders=''
+    while IFS= read -r -d '' relative; do
+      # This file's allowlist and scan cases spell out what the scan rejects.
+      [[ $relative == .local/lib/dotfiles/tests/tmux-test ]] && continue
+      path=$source_home/$relative
+      # Deletions show until staged; binary files are not text.
+      if [[ ! -f $path ]] || ! LC_ALL=C grep -Iq . "$path"; then continue; fi
+      while IFS= read -r mention; do
+        [[ -n $mention ]] || continue
+        allowed=false
+        for entry in "${tmux_mention_allowed[@]}"; do
+          [[ $relative == "${entry%%:*}" && $mention == *"${entry#*:}"* ]] && allowed=true
+        done
+        $allowed || tmux_offenders+="$relative: $mention"$'\n'
+      done < <(tmux_old_mentions "$path")
+    done <"$tmux_tracked_list"
+    _assert_eq 'tmux: nothing names a tmux older than the floor' '' "$tmux_offenders"
+  fi
+fi
+
+tmux_usable=false
+_test_require_tmux 'tmux' && tmux_usable=true
+if $tmux_usable; then
   socket=$(_tmux_socket) || exit 1
   CLEANUP_DIRS+=("${socket%/*}")
   _tmux_fixture_env "$source_home" || exit 1
@@ -444,6 +667,18 @@ if command -v tmux >/dev/null 2>&1; then
     status=$?
     _assert_exit "tmux: base fragment loader parses" 0 "$status"
     _assert_eq "tmux: syntax validation is quiet" '' "$output"
+    # tmux.conf's guard refuses exactly the versions below the floor: each
+    # vector stands in for #{version}, and this tmux evaluates the guard.
+    guard=$(sed -n 's/^%if "\(.*\)"$/\1/p' "$tmux_config")
+    guard_verdicts=''
+    for vector in $tmux_vectors; do
+      refused=$(tmux_cmd display-message -p "${guard//'#{version}'/${vector%:*}}")
+      [[ $refused == 1 ]] && guard_verdicts+=no$'\n' || guard_verdicts+=yes$'\n'
+    done
+    _assert_eq "tmux: tmux.conf's guard follows the floor on every vector" \
+      "$(tmux_vector_wants)" "${guard_verdicts%$'\n'}"
+    _assert_eq "tmux: tmux.conf's guard loads everything on this tmux" 0 \
+      "$(tmux_cmd display-message -p "$guard")"
     tmux_cmd bind-key -T prefix S run-shell tmux-save-session
     tmux_cmd bind-key -T prefix R run-shell tmux-restore-session
     tmux_cmd bind-key -T prefix N display-message stale-task-menu
@@ -452,15 +687,9 @@ if command -v tmux >/dev/null 2>&1; then
     tmux_cmd set-environment -g VSCODE_IPC_HOOK_CLI /run/vscode-ipc.sock
     load_output=$(tmux_cmd source-file "$tmux_config" 2>&1) || true
     # Every option the config sets is one this tmux knows, or is set with -q:
-    # tmux shows an unknown one as "invalid option" on every attach. The one
-    # known exception is hooks tmux lacks: tmux 3.2 has no client focus hooks.
-    if tmux_cmd show-hooks -g client-focus-in >/dev/null 2>&1; then
-      load_allowed='^$'
-    else
-      load_allowed='^invalid option: client-focus-(in|out)\[[0-9]+\]$'
-    fi
+    # tmux shows an unknown one as "invalid option" on every attach.
     _assert_eq 'tmux: the config sets no option this tmux lacks' '' \
-      "$(printf '%s\n' "$load_output" | grep -F 'invalid option:' | grep -Ev "$load_allowed")"
+      "$(printf '%s\n' "$load_output" | grep -F 'invalid option:')"
     _assert_eq "tmux: runtime drops VS Code's BROWSER inherited from the starting terminal" \
       '' "$(tmux_cmd show-environment -g BROWSER 2>/dev/null)"
     tmux_cmd set-environment -g BROWSER /usr/bin/firefox
@@ -828,15 +1057,8 @@ if command -v tmux >/dev/null 2>&1; then
     done
     marks_text=$(tmux_cmd capture-pane -p -t "$marks_pane")
     _assert_contains 'tmux: prompt-marked output keeps its text' $'user@h:~/repo\n% echo two\ntwo' "$marks_text"
-    # Only the leading digits of the minor version count: 3.6b, next-3.7.
     tmux_version=$(tmux_cmd -V 2>/dev/null)
-    tmux_version=${tmux_version#tmux }
-    tmux_version=${tmux_version#next-}
-    tmux_major=${tmux_version%%.*}
-    tmux_minor=${tmux_version#*.}
-    tmux_minor=${tmux_minor%%[!0-9]*}
-    if [[ $tmux_major =~ ^[0-9]+$ && $tmux_minor =~ ^[0-9]+$ ]] &&
-      ((tmux_major > 3 || (tmux_major == 3 && tmux_minor >= 4))); then
+    if _tmux_at_least "$tmux_version" 3.4; then
       # Run prefix k's own copy-mode commands: from the bottom of the screen
       # they must reach the last command's prompt, not the current one.
       tmux_cmd copy-mode -t "$marks_pane"
@@ -1447,11 +1669,9 @@ SH
   else
     _fail "tmux: test server starts"
   fi
-else
-  _pass "tmux: binary unavailable, syntax smoke skipped"
 fi
 
-if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+if $tmux_usable && command -v python3 >/dev/null 2>&1; then
   python3 "${BASH_SOURCE[0]%/*}/support/tmux-workers-test.py"
   _assert_exit "tmux: PTY worker scheduling and lifecycle coverage passes" 0 "$?"
   # The PTY driver starts its own private servers from the same fixture
@@ -1550,8 +1770,8 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
       *) _fail "tmux: PTY runs $pty_case (${pty_result:-no result})" ;;
     esac
   done
-else
-  _pass "tmux: Python or tmux unavailable, PTY coverage skipped"
+elif $tmux_usable; then
+  _pass "tmux: Python unavailable, PTY coverage skipped"
 fi
 
 _test_summary

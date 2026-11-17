@@ -11,8 +11,7 @@ source_home=${DOT_TEST_SOURCE_HOME:-$HOME}
 fragment=$source_home/.config/tmux/conf.d/10-base.conf
 fragment_content=$(<"$fragment")
 
-if ! command -v tmux >/dev/null 2>&1; then
-  _pass 'tmux navigation: binary unavailable, coverage skipped'
+if ! _test_require_tmux 'tmux navigation'; then
   _test_summary
   exit
 fi
@@ -334,8 +333,8 @@ for retired in termnav-switch-tab wezterm-switch-tab wezterm-move-tab \
     "$retired" "$fragment_content"
 done
 
-# tmux 3.2 serializes nested commands differently from newer releases. Test
-# the source-owned predicates directly instead of parsing version-specific
+# tmux releases serialize nested commands differently. Test the
+# source-owned predicates directly instead of parsing version-specific
 # list-keys display text; the runtime assertions above still prove that tmux
 # accepts and expands the bindings. source_filter pulls the awk program out of
 # a ps-fallback assignment and undoes the config's \$ escaping.

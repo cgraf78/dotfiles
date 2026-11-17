@@ -170,6 +170,11 @@ if [[ $needs_capability_runtime -eq 1 ]]; then
   ln -s "$nvim_bin" "$fixture_bin/nvim"
   ln -s "$yq_bin" "$fixture_bin/yq"
 fi
+# The composition check runs the tmux this suite found, which CI may have put
+# outside the system PATH (the tmux-floor profile builds it under RUNNER_TEMP).
+if tmux_bin=$(command -v tmux); then
+  ln -s "$tmux_bin" "$fixture_bin/tmux"
+fi
 fixture_path=$fixture_bin:$DOT_TEST_SYSTEM_PATH
 _pass 'profile fixtures have an isolated system Git'
 
@@ -559,7 +564,11 @@ assert_suite_discovery() {
 
 assert_tmux_composition() {
   local profile=$1 home=$2 socket keys prefix_keys move left open_link output
-  command -v tmux >/dev/null 2>&1 || return 0
+  local reported floor
+  # An older tmux refuses this config; tmux-test reports that once.
+  reported=$(tmux -V 2>/dev/null) || return 0
+  floor=$(DOT_TEST_SOURCE_HOME=$home _tmux_floor)
+  [[ -n $floor ]] && _tmux_at_least "$reported" "$floor" || return 0
   socket=dot-profile-$profile-$$
   if ! output=$(run_in_home "$home" tmux -L "$socket" -f /dev/null \
     new-session -d 'sleep 30' 2>&1); then

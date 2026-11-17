@@ -594,6 +594,86 @@ _tmux_fixture_env() {
   return 0
 }
 
+# The supported tmux floor: the "# tmux minimum: MAJOR.MINOR" marker above
+# tmux.conf's version guard, the one statement every test derives it from.
+_tmux_floor() {
+  local config=${DOT_TEST_SOURCE_HOME:-$HOME}/.config/tmux/tmux.conf
+  sed -n 's/^# tmux minimum: \([0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' "$config"
+}
+
+# Print how VERSION (#{version} or tmux -V) reads: "MAJOR MINOR", or
+# "newest" for master, openbsd-* and anything the rule cannot read. One
+# leading next- is ignored and only the minor's leading digits count, so
+# 3.3a, 3.3-rc and next-3.3 all read as 3 3.
+_tmux_release() {
+  local version=${1#tmux } major minor
+  case $version in master | openbsd-*)
+    echo newest
+    return
+    ;;
+  esac
+  version=${version#next-}
+  major=${version%%.*}
+  minor=${version#*.}
+  minor=${minor%%[!0-9]*}
+  if [[ $version == *.* && $major =~ ^[0-9]+$ && $minor =~ ^[0-9]+$ ]]; then
+    echo "$((10#$major)) $((10#$minor))"
+  else
+    echo newest
+  fi
+}
+
+# Whether VERSION is MAJOR.MINOR or newer; unreleased and unknown builds are.
+_tmux_at_least() {
+  local release want_major=${2%%.*} want_minor=${2#*.} major minor
+  release=$(_tmux_release "$1")
+  [[ $release == newest ]] && return 0
+  read -r major minor <<<"$release"
+  ((major > want_major || (major == want_major && minor >= want_minor)))
+}
+
+# Whether VERSION meets the floor.
+_tmux_supported() {
+  _tmux_at_least "$1" "$(_tmux_floor)"
+}
+
+# Settle whether this suite can use a real tmux: 0 when the tmux on PATH
+# meets the floor. Otherwise LABEL's real-tmux coverage is reported skipped,
+# or failed under DOT_TEST_REQUIRE_TMUX=1, and this returns 1. Shared CI
+# names the floor it chose tmux for in CI_TMUX_FLOOR, which must match the
+# marker, and under CI_TMUX_FLOOR_EXACT=1 tmux must be exactly that release.
+_test_require_tmux() {
+  local label=${1:?label required} floor reported reason=''
+  floor=$(_tmux_floor)
+  if [[ -z $floor ]]; then
+    _fail "$label: tmux.conf states no '# tmux minimum:' floor"
+    return 1
+  fi
+  if ! reported=$(tmux -V 2>/dev/null); then
+    reported=''
+    reason='tmux unavailable'
+  elif ! _tmux_supported "$reported"; then
+    reason="$reported is older than tmux $floor"
+  fi
+  if [[ -n ${CI_TMUX_FLOOR:-} ]]; then
+    if [[ ${CI_TMUX_FLOOR%%[!0-9.]*} != "$floor" ]]; then
+      _fail "$label: CI_TMUX_FLOOR=$CI_TMUX_FLOOR does not match the tmux.conf floor $floor"
+      return 1
+    fi
+    if [[ ${CI_TMUX_FLOOR_EXACT:-0} == 1 && $reported != "tmux $CI_TMUX_FLOOR" ]]; then
+      _fail "$label: CI_TMUX_FLOOR_EXACT=1 wants tmux $CI_TMUX_FLOOR, found ${reported:-no tmux}"
+      return 1
+    fi
+  fi
+  [[ -z $reason ]] && return 0
+  if [[ ${DOT_TEST_REQUIRE_TMUX:-0} == 1 ]]; then
+    _fail "$label: $reason, but DOT_TEST_REQUIRE_TMUX=1"
+  else
+    _pass "$label: $reason, real-tmux coverage skipped"
+  fi
+  return 1
+}
+
 _cleanup_dir() {
   local d="$1" retries=2
 

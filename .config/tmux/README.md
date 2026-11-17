@@ -1,6 +1,7 @@
 # tmux Config
 
-`tmux.conf` is a thin loader that sources `conf.d/*.conf` in lexical order.
+`tmux.conf` is a thin loader that sources `conf.d/*.conf` in lexical order,
+behind a guard on the server's tmux version (see [Requirements](#requirements)).
 The base `conf.d/10-base.conf` owns terminal multiplexing policy: sessions,
 status, clipboard, persistence, mouse mode, and the tmux side of the terminal
 navigation stack (pane, tab, and link routing across editor, nested-tmux, and
@@ -9,6 +10,30 @@ here too, so tmux hands them their chords instead of taking them; base never
 runs Neovim commands itself. The `dotfiles-nvim` overlay adds
 `conf.d/20-editor.conf` for the keys that only make sense with Neovim on the
 other end.
+
+## Requirements
+
+- tmux 3.3 or newer. The floor is the `# tmux minimum:` marker in
+  `tmux.conf`, which every test reads.
+- An older server refuses the config instead of loading it with errors: its
+  status line and a message as each client attaches say "This tmux config
+  needs tmux 3.3 or newer; this is VERSION", and it runs with stock tmux
+  settings, none of this config's keys, hooks or status. This happens when a
+  host's older system tmux (say `/usr/bin/tmux` 3.2a) starts the server
+  instead of the one shdeps installs; start it with that tmux instead, for
+  example with `tmux kill-server` and a fresh `tmux` from the updated
+  `PATH`.
+- The guard reads the server's own `#{version}`, so a refused server stays
+  refused after a later `source-file`, and a newer client connecting to it
+  changes nothing.
+- Nested under a supported outer tmux, for example over SSH to an older
+  host, the inner layer shows its own refusal and keeps stock bindings. The
+  outer layer still routes keys into the pane as for any program, and
+  C-S-b sends the outer prefix inward, so the inner tmux sees C-b. The
+  nested relay features that need this config on the inner layer
+  (attention leases, focus publishing, the agent picker) are absent there.
+- The refusal is clean from tmux 2.7, the first with `%if`; tmux 2.6 and
+  older load the config with errors.
 
 ## Integration Points
 
@@ -381,15 +406,14 @@ Respawn items (which kill the running program without asking), its marked-pane
 items and its swap up and down are left out; `prefix m` and Alt-Shift-H/J/K/L
 cover those.
 
-Each menu's title and items are defined once, in `%hidden` config variables
-(tmux 3.2 or newer), and spliced into the mouse, Option-mouse and keyboard
-bindings, which differ only in position. Over a word and a line the pane menu
-is 22 rows, one spare within the 23 above an 80x24 terminal's status line, so
-it still opens above the pointer near the bottom of the terminal; tmux 3.2,
-which does not collapse adjacent separators, draws 23. `tests/tmux-test`
-counts both, and the pane and attention items share one group to keep it that
-short. Items reuse the key bindings' own
-commands where they can. tmux leaves mouse bindings out of `prefix ?`.
+Each menu's title and items are defined once, in `%hidden` config variables,
+and spliced into the mouse, Option-mouse and keyboard bindings, which differ
+only in position. Over a word and a line the pane menu is 22 rows, one spare
+within the 23 above an 80x24 terminal's status line, so it still opens above
+the pointer near the bottom of the terminal. `tests/tmux-test` counts it, and
+the pane and attention items share one group to keep it that short. Items
+reuse the key bindings' own commands where they can. tmux leaves mouse
+bindings out of `prefix ?`.
 
 ## Key Handling
 
@@ -573,11 +597,10 @@ The frontend owns normal paste across SSH. Deliberate last-output copies carry
 the invoking client and pane and enter history through the same copy API.
 `clip copy --client` finds that client by exact name in `list-clients`:
 `display-message -p -c` answers for the most recently active client, which
-may belong to another session, and tmux 3.2 takes no argument to `-c`. If
-the history directory is unusable or a record fails, the copy still reaches
-the client and `clip` tells it. tmux 3.2 cannot aim a message at one client,
-so there that notice goes to the client tmux picks, which may be another
-session's.
+may belong to another session. If the history directory is unusable or a
+record fails, the copy still reaches the client and `clip` tells it; tmux
+drops that notice if the client has gone, and it never goes to another
+client.
 
 `prefix P` uses `clip pick --paste-pane` inside a real popup. Each invocation
 owns a distinct completed handoff and an explicit underlying pane; cancellation
