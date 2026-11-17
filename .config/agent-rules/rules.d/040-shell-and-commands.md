@@ -19,8 +19,8 @@
   id from `tmux list-panes -a`, never empty or implicit.
   `tmux-pane send -t %N 'TEXT' --enter --wait agent|prompt` prints the reply;
   `status=N` on stderr means the command's exit code. Exit 68 is a question or
-  permission prompt: leave it to the user unless asked to answer. After 124,
-  or 68 once answered, resume with
+  permission prompt: leave it to the user unless asked to answer. After exit
+  124, or exit 68 once answered, resume with
   `tmux-pane wait -t %N --agent|--prompt --since "$M" --capture` (`M`: the
   printed `marker=`). Put `--` before text starting with `-`; keep `--timeout`
   below your tool-call limit.
