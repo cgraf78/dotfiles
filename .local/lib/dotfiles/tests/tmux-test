@@ -197,6 +197,8 @@ _assert_contains 'tmux: control clients are excluded from context publication' \
   '#{==:#{client_control_mode},0}' "$tmux_content"
 _assert_not_contains 'tmux: context publication remains ordered' \
   "client-attached[100] 'run-shell -b" "$tmux_content"
+_assert_contains 'tmux: context publication is skipped without Termnav' \
+  "run-shell 'test ! -x ~/.local/bin/termnav || exec ~/.local/bin/termnav tmux context" "$tmux_content"
 _assert_contains 'tmux: focus-in starts the focus watcher' \
   'termnav tmux focus watch' "$tmux_content"
 # Notification hooks can expand #{client_*} for another client; only
@@ -448,7 +450,17 @@ if command -v tmux >/dev/null 2>&1; then
     # A server started from a VS Code terminal holds VS Code's BROWSER helper.
     tmux_cmd set-environment -g BROWSER /vscode-server/bin/helpers/browser.sh
     tmux_cmd set-environment -g VSCODE_IPC_HOOK_CLI /run/vscode-ipc.sock
-    tmux_cmd source-file "$tmux_config" >/dev/null 2>&1 || true
+    load_output=$(tmux_cmd source-file "$tmux_config" 2>&1) || true
+    # Every option the config sets is one this tmux knows, or is set with -q:
+    # tmux shows an unknown one as "invalid option" on every attach. The one
+    # known exception is hooks tmux lacks: tmux 3.2 has no client focus hooks.
+    if tmux_cmd show-hooks -g client-focus-in >/dev/null 2>&1; then
+      load_allowed='^$'
+    else
+      load_allowed='^invalid option: client-focus-(in|out)\[[0-9]+\]$'
+    fi
+    _assert_eq 'tmux: the config sets no option this tmux lacks' '' \
+      "$(printf '%s\n' "$load_output" | grep -F 'invalid option:' | grep -Ev "$load_allowed")"
     _assert_eq "tmux: runtime drops VS Code's BROWSER inherited from the starting terminal" \
       '' "$(tmux_cmd show-environment -g BROWSER 2>/dev/null)"
     tmux_cmd set-environment -g BROWSER /usr/bin/firefox
@@ -500,8 +512,16 @@ if command -v tmux >/dev/null 2>&1; then
     _assert_exit 'tmux: control client attaches and detaches cleanly' 0 "$control_status"
     _assert_contains 'tmux: control client receives a clean protocol exit' \
       '%exit' "$control_output"
-    _assert_not_contains 'tmux: control client does not publish terminal context' \
-      'command: run-shell "\~/.local/bin/termnav tmux context' "$control_messages"
+    # The hook's if-shell is logged either way; only a run-shell line means
+    # the context was published. tmux before 3.6 logs no commands at all, so
+    # there the check could not fail and is skipped.
+    if [[ $control_messages == *'command: '* ]]; then
+      _assert_eq 'tmux: control client does not publish terminal context' '' \
+        "$(printf '%s\n' "$control_messages" | grep -F 'command: run-shell' |
+          grep -F 'termnav tmux context')"
+    else
+      printf 'SKIP: tmux: control client does not publish terminal context (no command log)\n'
+    fi
     _assert_eq 'tmux: runtime retains conditional pane labels' \
       '#{?#{E:@termnav_pane_is_focused_leaf},,#[fg=#898989]} #I.#P (#{pane_id})  #{E:@pane_pending_marker}#{E:@pane_label} ' \
       "$pane_border_format"
@@ -1449,6 +1469,7 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
   printf '%s\n' "$pty_output"
   _assert_exit "tmux: base PTY focus/style coverage passes" 0 "$pty_status"
   for pty_case in \
+    test_attaching_shows_no_error \
     test_focus_hooks_are_client_scoped_and_ignore_control_mode \
     test_styles_follow_each_client_and_child_claim \
     test_terminal_render_paints_the_focused_leaf_night_owl_blue \
@@ -1469,6 +1490,12 @@ if command -v tmux >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     test_nested_attention_reaches_the_terminal_at_once \
     test_prefix_A_pastes_the_last_output_into_the_agent \
     test_clip_copy_reaches_its_client_while_another_is_active \
+    test_an_oversized_client_is_detached_before_it_is_drawn \
+    test_the_guard_detaches_the_oversized_client_not_the_active_one \
+    test_an_oversized_only_client_leaves_its_window_ordinary \
+    test_a_client_attaching_with_an_oversized_terminal_is_detached \
+    test_the_size_limit_is_4000_cells_each_way \
+    test_the_guard_skips_a_connection_that_has_not_identified \
     test_prefix_g_and_G_open_popups_in_the_pane_directory \
     test_prefix_n_opens_a_task_window \
     test_right_click_opens_the_pane_menu_on_the_pane_clicked \
