@@ -2831,6 +2831,13 @@ class LeafStyleTest(unittest.TestCase):
         A command from outside any client, like this one, runs against the
         current client, which is what a bare command in a hook would hit.
         """
+        # The first render can precede attach-hook completion. tmux suppresses
+        # resize hooks while another notification hook is running, so corrupt
+        # the old client's size only after this client's attach queue finishes.
+        wait_until(
+            lambda: self.global_option("@test_attached") == client.tty,
+            "the active client's attach hooks to finish",
+        )
         client.send(b"x")
         wait_until(
             lambda: self.show(self.active, "#{client_name}") == client.tty,
@@ -2869,6 +2876,12 @@ class LeafStyleTest(unittest.TestCase):
     def skip_without_guard(self) -> None:
         if not self.tmux_at_least(3, 4):
             self.skipTest("the oversized-client guard needs tmux 3.4")
+        self.tmux(
+            "set-hook",
+            "-g",
+            "client-attached[999999]",
+            "set-option -gF @test_attached '#{hook_client}'",
+        )
         # Record the widest any window gets, so a window that grew toward the
         # bad client and shrank back still fails.
         self.tmux("set-option", "-g", "@test_widest", "0")
@@ -2894,6 +2907,9 @@ class LeafStyleTest(unittest.TestCase):
         self.skip_without_guard()
         victim = Client(self)
         self.clients.append(victim)
+        # Model a slow attach helper: without the completion marker above,
+        # resizing the older client here drops its guard hook and stalls tmux.
+        self.tmux("set-hook", "-g", "client-attached[50]", 'run-shell "sleep 1"')
         healthy = Client(self)
         self.clients.append(healthy)
         window = self.window_size()
