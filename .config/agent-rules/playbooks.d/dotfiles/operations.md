@@ -32,6 +32,22 @@ documentation: `~/.local/share/doc/dotfiles/dotfiles.md`.
 
 ## Verify installed state
 
+- `dot update` is the single deployment and convergence command for
+  dotfiles-owned configuration. Wire installed copies and generated targets
+  into its existing hook/provider lifecycle; do not leave a separate manual
+  installer step after a successful update.
+- Keep one source owner for each managed target. Merge-hook fragments,
+  generated files and deliberately installed regular copies are valid when
+  that owner and the `dot update` convergence path are clear. Audit practical
+  source-to-installed drift rather than treating repeated bytes as a defect.
+- Preserve deliberately host-local configuration and its native authority.
+  Initial enrollment, account/state migrations and other exceptional operations
+  must have explicit boundaries; routine convergence must not silently claim
+  unrelated local files or enable undeployed services.
+- Keep privilege and account scope explicit. A user's update must not deploy
+  privileged configuration; root hooks must resolve the real account home and
+  execute protected sources. Validate before atomic publication, report
+  failures, and leave unchanged targets untouched on repeated updates.
 - Test changes from the source checkout before installation.
 - After related provider and consumer changes have landed, run `dot update -f`
   so every overlay and generated target is rebuilt from the landed revisions.
