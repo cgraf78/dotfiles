@@ -44,6 +44,8 @@ documentation: `~/.local/share/doc/dotfiles/dotfiles.md`.
   Initial enrollment, account/state migrations and other exceptional operations
   must have explicit boundaries; routine convergence must not silently claim
   unrelated local files or enable undeployed services.
+  Select the affected host role or enrolled feature before validating its
+  service-specific paths: installing an overlay does not enroll the host.
 - Keep privilege and account scope explicit. A user's update must not deploy
   privileged configuration; root hooks must resolve the real account home and
   execute protected sources. Validate before atomic publication, report
