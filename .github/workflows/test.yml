@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@e767cb36e31553674db90a611fb033e7f00b0516
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@6fc1483ad80577ace8ca7eb4402c5864511efd24
     with:
       # This repository owns only base and profile/control-plane tests. The
       # public capability repositories run their own focused suites, so this
@@ -117,7 +117,7 @@ jobs:
           persist-credentials: false
 
       # GitHub resolves literal `uses:` refs before repository files are read.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@e767cb36e31553674db90a611fb033e7f00b0516
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@6fc1483ad80577ace8ca7eb4402c5864511efd24
 
   installed-profiles:
     name: Installed profiles
@@ -143,7 +143,7 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@e767cb36e31553674db90a611fb033e7f00b0516
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@6fc1483ad80577ace8ca7eb4402c5864511efd24
         with:
           matrix-name: Ubuntu
           profiles: base,jq,python,zsh,lua,tmux-floor,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname
