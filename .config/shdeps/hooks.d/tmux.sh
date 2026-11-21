@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Install the base-owned tmux version from the reviewed tmux-builds archives.
 
-# Pinned to 3.6b: 3.7b busy-looped the server with attached SSH clients (#256).
-_TMUX_VERSION=3.6b
+_TMUX_VERSION=3.8
 # The archive revision tracks rebuilds that report the same upstream version.
 _TMUX_RELEASE=${_TMUX_VERSION}-1
 
@@ -27,19 +26,19 @@ _tmux_asset() {
   case $platform:$arch in
     linux:x86_64 | linux:amd64 | wsl:x86_64 | wsl:amd64)
       asset=linux-x86_64
-      checksum=2ff103181224f4af1b4fe20ebaf687439005b2426cb76514f655aa1f178d42f5
+      checksum=ab4827c7f5990f43227911ee7fdc9848244fdfe46dee69a4fc9bfb0bd1357db7
       ;;
     linux:aarch64 | linux:arm64 | wsl:aarch64 | wsl:arm64)
       asset=linux-arm64
-      checksum=3a092f2d7fe5900a76227ecde0b2c43b491fd1d7c534c869b7d6fbbd90b629ee
+      checksum=4c33b91eb40d9ebb041ab12b31b7c9f8269dff0d4fee7596185415d40a907b8b
       ;;
     macos:x86_64 | macos:amd64)
       asset=macos-x86_64
-      checksum=f3b8862bd2ff17e117c97fa1727434a99c1583ac80e5d85252768bd8e4dc2ac7
+      checksum=f1c42e0458ddf33db86d9eb535b9acaa39669ac7d25b0c331d8e9a5009ab91ad
       ;;
     macos:aarch64 | macos:arm64)
       asset=macos-arm64
-      checksum=59bc32480690b1f1d5a64dc097e43c3dc3439d0ab3499e72ff362f43ac202fb4
+      checksum=3381c230bfeb1a04d8771ff323db06cae71c9c7a32155092c1750a92e3e1b228
       ;;
     *) return 1 ;;
   esac
