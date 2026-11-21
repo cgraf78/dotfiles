@@ -34,6 +34,32 @@ def wait_until(predicate, description: str, timeout: float = 4.0) -> None:
     raise AssertionError(f"timed out waiting for {description}")
 
 
+def run_tmux(
+    socket: pathlib.Path,
+    environment: dict[str, str],
+    arguments: tuple[str, ...],
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """Run one tmux command; a failure reports what tmux printed.
+
+    CalledProcessError shows only the exit status, and tmux says why a
+    command failed (a missing pane, a lost server) only on stderr.
+    """
+    completed = subprocess.run(
+        ["tmux", "-S", str(socket), *arguments],
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if check and completed.returncode != 0:
+        raise AssertionError(
+            f"tmux {shlex.join(arguments)} exited {completed.returncode}: "
+            f"{completed.stderr.strip() or '(no stderr)'}"
+        )
+    return completed
+
+
 class Client:
     """One controllable terminal attachment to the isolated tmux server."""
 
@@ -183,13 +209,7 @@ class NavigationTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def tmux(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["tmux", "-S", str(self.socket), *arguments],
-            env=self.environment,
-            text=True,
-            capture_output=True,
-            check=check,
-        )
+        return run_tmux(self.socket, self.environment, arguments, check)
 
     def client_is_focused(self, tty: str) -> bool | None:
         listing = self.tmux("list-clients", "-F", "#{client_tty} #{client_flags}", check=False)
@@ -202,13 +222,7 @@ class NavigationTest(unittest.TestCase):
     def active_pane(self, socket: pathlib.Path | None = None) -> str:
         """Return the active pane from this server or a nested fixture."""
         target = socket or self.socket
-        completed = subprocess.run(
-            ["tmux", "-S", str(target), "display-message", "-p", "#{pane_id}"],
-            env=self.environment,
-            text=True,
-            capture_output=True,
-            check=True,
-        )
+        completed = run_tmux(target, self.environment, ("display-message", "-p", "#{pane_id}"))
         return completed.stdout.strip()
 
     def test_ctrl_backslash_selects_the_local_previous_pane(self) -> None:
@@ -235,13 +249,7 @@ class NavigationTest(unittest.TestCase):
         inner_environment.pop("TMUX_PANE", None)
 
         def inner(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                ["tmux", "-S", str(inner_socket), *arguments],
-                env=inner_environment,
-                text=True,
-                capture_output=True,
-                check=check,
-            )
+            return run_tmux(inner_socket, inner_environment, arguments, check)
 
         try:
             inner(
@@ -451,13 +459,7 @@ class AppRoutingFixture(unittest.TestCase):
             self.client.close()
 
     def tmux(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["tmux", "-S", str(self.socket), *arguments],
-            env=self.environment,
-            text=True,
-            capture_output=True,
-            check=check,
-        )
+        return run_tmux(self.socket, self.environment, arguments, check)
 
     def mode(self, pane: str) -> str:
         return self.tmux("display-message", "-p", "-t", pane, "#{pane_mode}").stdout.strip()
@@ -779,13 +781,7 @@ class ImagePasteRoutingTest(AppRoutingFixture):
         inner_socket = self.root / "inner.sock"
 
         def inner(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                ["tmux", "-S", str(inner_socket), *arguments],
-                env=self.environment,
-                text=True,
-                capture_output=True,
-                check=check,
-            )
+            return run_tmux(inner_socket, self.environment, arguments, check)
 
         inner("-f", "/dev/null", "new-session", "-d", "-s", "nested", "sleep 60")
         self.addCleanup(inner, "kill-server", check=False)

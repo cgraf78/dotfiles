@@ -2776,17 +2776,29 @@ class LeafStyleTest(unittest.TestCase):
         A command from outside any client, like this one, runs against the
         current client, which is what a bare command in a hook would hit.
         """
-        # The first render can precede attach-hook completion. tmux suppresses
-        # resize hooks while another notification hook is running, so corrupt
-        # the old client's size only after this client's attach queue finishes.
-        wait_until(
-            lambda: self.global_option("@test_attached") == client.tty,
-            "the active client's attach hooks to finish",
-        )
+        # Corrupt the old client's size only after this client's attach queue
+        # finishes (see wait_attached).
+        self.wait_attached(client)
         client.send(b"x")
         wait_until(
             lambda: self.show(self.active, "#{client_name}") == client.tty,
             "the typing client to become the current client",
+        )
+
+    def wait_attached(self, client: Client) -> None:
+        """Wait until every client-attached hook has run for client.
+
+        The first render can precede attach-hook completion: base's attach
+        hook waits on a run-shell, which a busy host can stretch well past
+        the render. tmux suppresses resize hooks while another notification
+        hook is running, so a client resized before then skips the guard and
+        tmux draws it at the bad size, a gap 10-base.conf documents. That
+        stalls the server (tmux 3.8) or crashes it (3.6b), and every wait
+        after it times out. skip_without_guard records the last attach hook.
+        """
+        wait_until(
+            lambda: self.global_option("@test_attached") == client.tty,
+            f"{client.tty}'s attach hooks to finish",
         )
 
     def assert_refused(self, victim: Client, healthy: Client | None, window: str) -> None:
@@ -2845,6 +2857,7 @@ class LeafStyleTest(unittest.TestCase):
         window = self.window_size()
         victim = Client(self)
         self.clients.append(victim)
+        self.wait_attached(victim)
         victim.resize(43690, 43690)
         self.assert_refused(victim, healthy, window)
 
@@ -2876,6 +2889,7 @@ class LeafStyleTest(unittest.TestCase):
         window = self.window_size()
         victim = Client(self)
         self.clients.append(victim)
+        self.wait_attached(victim)
         victim.resize(43690, 43690)
         self.assert_refused(victim, None, window)
 
@@ -2900,9 +2914,13 @@ class LeafStyleTest(unittest.TestCase):
         ):
             with self.subTest(size=f"{columns}x{rows}"):
                 self.tmux("set-option", "-gu", "@oversized_client_detached")
+                # A closed client's tty can be the next one's, so clear the
+                # marker rather than let it name the new client in advance.
+                self.tmux("set-option", "-gu", "@test_attached")
                 window = self.window_size()
                 client = Client(self)
                 self.clients.append(client)
+                self.wait_attached(client)
                 client.resize(rows, columns)
                 if not kept:
                     self.assert_refused(client, healthy, window)
