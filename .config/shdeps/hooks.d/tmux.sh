@@ -3,6 +3,8 @@
 
 # Pinned to 3.6b: 3.7b busy-looped the server with attached SSH clients (#256).
 _TMUX_VERSION=3.6b
+# The archive revision tracks rebuilds that report the same upstream version.
+_TMUX_RELEASE=${_TMUX_VERSION}-1
 
 _tmux_root() {
   # ~/.local/share/tmux is application state (including tmux-resurrect data),
@@ -25,23 +27,23 @@ _tmux_asset() {
   case $platform:$arch in
     linux:x86_64 | linux:amd64 | wsl:x86_64 | wsl:amd64)
       asset=linux-x86_64
-      checksum=002a6f4fd52212600fa0d72d865dcf328e5b8b6e83c179788144d8587b75677a
+      checksum=2ff103181224f4af1b4fe20ebaf687439005b2426cb76514f655aa1f178d42f5
       ;;
     linux:aarch64 | linux:arm64 | wsl:aarch64 | wsl:arm64)
       asset=linux-arm64
-      checksum=fd4a2206c5e468dd2ee4e9a65f2d40e0762551965d7fdbe849c494ab14f513e9
+      checksum=3a092f2d7fe5900a76227ecde0b2c43b491fd1d7c534c869b7d6fbbd90b629ee
       ;;
     macos:x86_64 | macos:amd64)
       asset=macos-x86_64
-      checksum=073f6e2c2baa7eb5d643563600ee6052ca8619f3ec5a0cfdf99c56397fb72c94
+      checksum=f3b8862bd2ff17e117c97fa1727434a99c1583ac80e5d85252768bd8e4dc2ac7
       ;;
     macos:aarch64 | macos:arm64)
       asset=macos-arm64
-      checksum=88323402bd28d21103239caf009b130086ebf334807de485d4a1e1c7188ee810
+      checksum=59bc32480690b1f1d5a64dc097e43c3dc3439d0ab3499e72ff362f43ac202fb4
       ;;
     *) return 1 ;;
   esac
-  REPLY_URL="https://github.com/tmux/tmux-builds/releases/download/v$_TMUX_VERSION/tmux-$_TMUX_VERSION-$asset.tar.gz"
+  REPLY_URL="https://github.com/cgraf78/tmux-builds/releases/download/v$_TMUX_RELEASE/tmux-$_TMUX_VERSION-$asset.tar.gz"
   REPLY_SHA256=$checksum
 }
 
@@ -75,7 +77,7 @@ _tmux_root_current() {
   root=$(_tmux_root)
   marker=$root/.shdeps-tmux-build
   _tmux_root_owned || return 1
-  [[ $(<"$marker") == "version=$_TMUX_VERSION" ]] || return 1
+  [[ $(<"$marker") == "version=$_TMUX_RELEASE" ]] || return 1
   [[ -x $root/tmux && ! -d $root/tmux ]] || return 1
   "$root/tmux" -V 2>/dev/null | grep -Fx "tmux $_TMUX_VERSION" >/dev/null
 }
@@ -263,7 +265,7 @@ install() {
     return 1
   fi
   rm -f -- "$archive"
-  printf 'version=%s\n' "$_TMUX_VERSION" >"$candidate/.shdeps-tmux-build" || {
+  printf 'version=%s\n' "$_TMUX_RELEASE" >"$candidate/.shdeps-tmux-build" || {
     rm -rf -- "$stage"
     return 1
   }
