@@ -647,6 +647,27 @@ That reaches local tmux and one remote hop over SSH or ET. The receiver exits
 1 after reporting a failure itself, so only other statuses open tmux's error
 view. The existing `C-v` fallback binding is unchanged.
 
+At an interactive zsh prompt with Termnav's shell integration, the pasted
+path stays on the command line and a thumbnail appears above it. Termnav
+uses sixel when the running tmux server supports it and every attached
+client whose session contains the window advertises sixel and reports a
+usable cell size. Other zsh previews use truecolor half blocks. Set
+`TERMNAV_PASTE_IMAGE_PREVIEW` to `off` in the tmux global environment to paste
+the path without a thumbnail.
+
+For nested tmux, enable the `sixel` terminal feature on each inner server
+when the outer tmux layers and terminal support sixel. Add this to the inner
+servers' configuration. Termnav uses half blocks if a nested client reports
+cell dimensions that differ from the window's.
+
+```tmux
+set -as terminal-features 'tmux*:sixel'
+```
+
+Run `tmux display-message -p '#{sixel_support}'` in the receiving pane to
+check the running server. It prints `1` when that server supports sixel.
+An installed tmux update takes effect for newly started servers.
+
 Known limitations, accepted because remote tmux running this config is the
 supported setup:
 
