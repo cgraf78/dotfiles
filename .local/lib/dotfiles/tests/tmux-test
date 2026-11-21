@@ -622,9 +622,14 @@ if [[ ! -e $source_home/.git && ! -L $source_home/.git && ! -d $source_home/.dot
   fi
 else
   tmux_tracked_list=$(_tmpfile)
+  tmux_tracked_lines=$(_tmpfile)
+  # Search a finished file, not a `tr | grep -q` pipe: grep -q exits at the
+  # first match, and under pipefail a tr still writing then dies of SIGPIPE
+  # and fails the check even though the file is listed.
   if ! tmux_tracked >"$tmux_tracked_list"; then
     _fail 'tmux: git ls-files lists the files to scan'
-  elif ! tr '\0' '\n' <"$tmux_tracked_list" | grep -qx '\.config/tmux/tmux\.conf'; then
+  elif ! tr '\0' '\n' <"$tmux_tracked_list" >"$tmux_tracked_lines" ||
+    ! grep -qx '\.config/tmux/tmux\.conf' "$tmux_tracked_lines"; then
     _fail 'tmux: git ls-files lists .config/tmux/tmux.conf'
   else
     tmux_offenders=''
@@ -704,9 +709,25 @@ if $tmux_usable; then
     _assert_contains 'tmux: runtime refreshes the VS Code IPC socket on attach' \
       VSCODE_IPC_HOOK_CLI "$(tmux_cmd show-options -gv update-environment)"
     mode_keys=$(tmux_cmd show-window-options -gv mode-keys)
-    control_output=$(printf 'detach-client\n' |
-      tmux_cmd -C attach-session -t dot-tmux-syntax 2>&1)
+    # Send detach-client only once the server lists the control client.
+    # Input written up front can reach the server before attach-session
+    # runs, mostly when client and server share a CPU: detach-client then
+    # fails with "no current client", and the EOF behind it exits the
+    # client with that error's status 1.
+    control_output=$(
+      {
+        for _ in $(seq 1 50); do
+          [[ $(tmux_cmd list-clients -t dot-tmux-syntax \
+            -F '#{client_control_mode}') == *1* ]] && break
+          sleep 0.1
+        done
+        printf 'detach-client\n'
+      } | tmux_cmd -C attach-session -t dot-tmux-syntax 2>&1
+    )
     control_status=$?
+    # The protocol output names the failing command, which the exit status
+    # assertion below cannot show.
+    ((control_status == 0)) || printf '%s\n' "$control_output" >&2
     control_messages=$(tmux_cmd show-messages)
     root_keys=$(tmux_cmd list-keys -T root)
     prefix_keys=$(tmux_cmd list-keys -T prefix)
