@@ -602,26 +602,26 @@ if [[ -f $_tmux_hook ]]; then
   uname() { printf '%s\n' "$_tmux_test_arch"; }
 
   _tmux_asset
-  _assert_eq "tmux: Linux x64 URL is pinned to release v3.6b-1" \
-    "https://github.com/cgraf78/tmux-builds/releases/download/v3.6b-1/tmux-3.6b-linux-x86_64.tar.gz" \
+  _assert_eq "tmux: Linux x64 URL is pinned to release v3.8-1" \
+    "https://github.com/cgraf78/tmux-builds/releases/download/v3.8-1/tmux-3.8-linux-x86_64.tar.gz" \
     "$REPLY_URL"
   _assert_eq "tmux: Linux x64 selects the pinned archive checksum" \
-    "2ff103181224f4af1b4fe20ebaf687439005b2426cb76514f655aa1f178d42f5" \
+    "ab4827c7f5990f43227911ee7fdc9848244fdfe46dee69a4fc9bfb0bd1357db7" \
     "$REPLY_SHA256"
   _tmux_test_arch=arm64
   _tmux_asset
   _assert_eq "tmux: Linux arm64 selects the pinned archive checksum" \
-    "3a092f2d7fe5900a76227ecde0b2c43b491fd1d7c534c869b7d6fbbd90b629ee" \
+    "4c33b91eb40d9ebb041ab12b31b7c9f8269dff0d4fee7596185415d40a907b8b" \
     "$REPLY_SHA256"
   _tmux_test_platform=macos
   _tmux_asset
   _assert_eq "tmux: macOS arm64 selects the pinned archive checksum" \
-    "59bc32480690b1f1d5a64dc097e43c3dc3439d0ab3499e72ff362f43ac202fb4" \
+    "3381c230bfeb1a04d8771ff323db06cae71c9c7a32155092c1750a92e3e1b228" \
     "$REPLY_SHA256"
   _tmux_test_arch=x86_64
   _tmux_asset
   _assert_eq "tmux: macOS x64 selects the pinned archive checksum" \
-    "f3b8862bd2ff17e117c97fa1727434a99c1583ac80e5d85252768bd8e4dc2ac7" \
+    "f1c42e0458ddf33db86d9eb535b9acaa39669ac7d25b0c331d8e9a5009ab91ad" \
     "$REPLY_SHA256"
 
   _tmux_home=$(_tmpdir)
@@ -632,7 +632,7 @@ if [[ -f $_tmux_hook ]]; then
   mkdir -p "$_tmux_install/tmux/resurrect/example-host"
   printf '%s\n' 'existing tmux runtime state' \
     >"$_tmux_install/tmux/resurrect/example-host/sentinel"
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.8\n"' \
     >"$_tmux_archive_root/payload/tmux"
   chmod +x "$_tmux_archive_root/payload/tmux"
   tar -czf "$_tmux_archive_root/tmux.tar.gz" -C "$_tmux_archive_root/payload" tmux
@@ -664,7 +664,7 @@ if [[ -f $_tmux_hook ]]; then
   }
   # shellcheck disable=SC2329 # Test fixture replaces only asset resolution.
   _tmux_asset() {
-    REPLY_URL=fixture://tmux-3.6b-1
+    REPLY_URL=fixture://tmux-3.8-1
     REPLY_SHA256=$_tmux_expected_sha
   }
   # shellcheck disable=SC2329 # Test fixture captures warnings.
@@ -712,7 +712,7 @@ if [[ -f $_tmux_hook ]]; then
     _fail "tmux: migration removes the retired Mise command link"
   fi
   _assert_eq "tmux: installed binary reports the pinned version" \
-    "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
+    "tmux 3.8" "$("$_tmux_bin/tmux" -V)"
   _assert_file_content "tmux: install preserves existing runtime state" \
     "existing tmux runtime state" \
     "$_tmux_install/tmux/resurrect/example-host/sentinel"
@@ -738,12 +738,12 @@ if [[ -f $_tmux_hook ]]; then
     "$_tmux_install/tmux/.shdeps-tmux-build"
 
   _tmux_managed=$_tmux_install/tmux/tmux-builds
-  printf '%s\n' '#!/usr/bin/env bash' '# Official 3.6b archive fixture.' \
-    'printf "tmux 3.6b\n"' >"$_tmux_managed/tmux"
+  printf '%s\n' '#!/usr/bin/env bash' '# Official 3.8 archive fixture.' \
+    'printf "tmux 3.8\n"' >"$_tmux_managed/tmux"
   chmod +x "$_tmux_managed/tmux"
-  printf '%s\n' 'version=3.6b' >"$_tmux_managed/.shdeps-tmux-build"
+  printf '%s\n' 'version=3.8' >"$_tmux_managed/.shdeps-tmux-build"
   _assert_eq "tmux: official binary already reports the pinned upstream version" \
-    "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
+    "tmux 3.8" "$("$_tmux_bin/tmux" -V)"
   if exists tmux; then
     _fail "tmux: update detects the previous build at the same upstream version"
   elif install tmux; then
@@ -754,21 +754,21 @@ if [[ -f $_tmux_hook ]]; then
   _assert_eq "tmux: repin replaces the old executable with the new archive payload" \
     "$(<"$_tmux_archive_root/payload/tmux")" "$(<"$_tmux_managed/tmux")"
   _assert_eq "tmux: repin records the release revision in the ownership marker" \
-    "version=3.6b-1" "$(<"$_tmux_managed/.shdeps-tmux-build")"
+    "version=3.8-1" "$(<"$_tmux_managed/.shdeps-tmux-build")"
   if exists tmux; then
     _pass "tmux: revised installed build is current on the next update"
   else
     _fail "tmux: revised installed build is current on the next update"
   fi
 
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' \
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.6b\n"' \
     >"$_tmux_install/tmux/tmux-builds/tmux"
   chmod +x "$_tmux_install/tmux/tmux-builds/tmux"
-  printf '%s\n' 'version=3.5a' \
+  printf '%s\n' 'version=3.6b-1' \
     >"$_tmux_install/tmux/tmux-builds/.shdeps-tmux-build"
   install tmux
   _assert_eq "tmux: managed older version upgrades to the pinned version" \
-    "tmux 3.6b" "$("$_tmux_bin/tmux" -V)"
+    "tmux 3.8" "$("$_tmux_bin/tmux" -V)"
 
   printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' \
     >"$_tmux_install/tmux/tmux-builds/tmux"
