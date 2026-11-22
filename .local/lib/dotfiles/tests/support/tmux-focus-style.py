@@ -2269,15 +2269,14 @@ class LeafStyleTest(unittest.TestCase):
         def messages() -> str:
             return self.tmux("show-messages").stdout
 
+        original_buffers = self.tmux("list-buffers", "-F", "#{buffer_name}").stdout
         expected = f"\x1b[200~% make test ({shell})\nFAIL: widget\x1b[201~"
         press_from(shell)
         wait_until(lambda: pastes().count("\x1b[201~") == 1, "first paste reaches the agent")
         # tmux's line-ending translation inside a paste varies by release.
         self.assertEqual(expected, pastes().replace("\r", "\n"))
         wait_until(lambda: self.current_pane(client) == agent, "prefix A focuses the agent")
-        self.assertNotIn(
-            "agent-paste", self.tmux("list-buffers", "-F", "#{buffer_name}").stdout.split()
-        )
+        self.assertEqual(original_buffers, self.tmux("list-buffers", "-F", "#{buffer_name}").stdout)
 
         # No block pastes nothing and stays quiet; an older
         # tmux-copy-last-output without --print is reported; pressing in the
@@ -2313,6 +2312,145 @@ class LeafStyleTest(unittest.TestCase):
             len(re.findall(r"message: .*--print failed with status [0-9]", messages())),
             "only the real failure is reported",
         )
+
+    def test_prefix_A_keeps_concurrent_pastes_in_their_own_panes(self) -> None:
+        """Hold one real buffer after loading it while another client pastes."""
+        tools = self.root / "bin"
+        tools.mkdir()
+        source = tools / "tmux-copy-last-output"
+        source.write_text("#!/bin/sh\nprintf '%s' \"$TMUX_PANE\"\n")
+        source.chmod(0o755)
+        agent_program = tools / "codex"
+        shutil.copy(shutil.which("bash") or "/bin/bash", agent_program)
+        recorder = self.root / "recorder"
+        recorder.write_text(
+            "printf '\\033[?2004h'\n"
+            "stty raw -echo\n"
+            'touch "$1.ready"\n'
+            "while IFS= read -r -d '' -n 1 byte; do printf '%s' \"$byte\" >>\"$1\"; done\n"
+        )
+
+        def attach(session: str, output: pathlib.Path) -> tuple[Client, str, str]:
+            """Open a raw paste receiver and a separate source pane."""
+            agent = self.tmux(
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-P",
+                "-F",
+                "#{pane_id}",
+                shlex.join([str(agent_program), str(recorder), str(output)]),
+            ).stdout.strip()
+            self.assertTrue(agent)
+            shell = self.tmux(
+                "split-window", "-t", agent, "-P", "-F", "#{pane_id}", "sleep 30"
+            ).stdout.strip()
+            self.assertTrue(shell)
+            wait_until(output.with_suffix(".ready").exists, "agent's raw input loop is ready")
+            client = Client(self, session)
+            self.clients.append(client)
+            wait_until(lambda: self.client_pane(client) == shell, "client on its source pane")
+            return client, shell, agent
+
+        first_output, second_output = self.root / "first", self.root / "second"
+        first, first_shell, first_agent = attach("paste-first", first_output)
+        second, second_shell, second_agent = attach("paste-second", second_output)
+
+        # Pause only the first caller, between its successful load and its
+        # attempt to paste. The second caller can finish on its own queue.
+        loaded, release = self.root / "loaded", self.root / "release"
+        self.addCleanup(release.touch)
+        wrapper = tools / "tmux"
+        real_tmux = shlex.quote(shutil.which("tmux") or "tmux")
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            f'if [ "$1" = load-buffer ] && [ "$TMUX_PANE" = "{first_shell}" ]; then\n'
+            f'  {real_tmux} "$@" || exit $?\n'
+            f"  : >{shlex.quote(str(loaded))}\n"
+            "  tries=0\n"
+            f'  while [ ! -e {shlex.quote(str(release))} ] && [ "$tries" -lt 200 ]; do\n'
+            "    sleep .05\n"
+            "    tries=$((tries + 1))\n"
+            "  done\n"
+            f"  test -e {shlex.quote(str(release))}\n"
+            "else\n"
+            f'  exec {real_tmux} "$@"\n'
+            "fi\n"
+        )
+        wrapper.chmod(0o755)
+        self.tmux("set-environment", "-g", "PATH", f"{tools}:{self.environment['PATH']}")
+        original_buffers = self.tmux("list-buffers", "-F", "#{buffer_name}").stdout
+
+        self.press(first, b"A")
+        wait_until(loaded.exists, "first caller loads its buffer")
+        self.press(second, b"A")
+        expected_second = f"\x1b[200~{second_shell}\x1b[201~"
+        wait_until(
+            lambda: second_output.exists() and second_output.read_text() == expected_second,
+            "second caller pastes in its own pane",
+        )
+        release.touch()
+        expected_first = f"\x1b[200~{first_shell}\x1b[201~"
+        wait_until(
+            lambda: first_output.exists() and first_output.read_text() == expected_first,
+            "first caller still has its original buffer",
+        )
+        wait_until(lambda: self.client_pane(first) == first_agent, "first agent is focused")
+        wait_until(lambda: self.client_pane(second) == second_agent, "second agent is focused")
+        self.assertEqual(original_buffers, self.tmux("list-buffers", "-F", "#{buffer_name}").stdout)
+
+    def test_prefix_A_cleans_up_when_the_agent_pane_disappears(self) -> None:
+        """Close the exact destination after loading and before pasting."""
+        tools = self.root / "bin"
+        tools.mkdir()
+        source = tools / "tmux-copy-last-output"
+        source.write_text("#!/bin/sh\nprintf '%s' output\n")
+        source.chmod(0o755)
+        agent_program = tools / "codex"
+        shutil.copy(shutil.which("bash") or "/bin/bash", agent_program)
+        agent = self.tmux(
+            "new-window",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            shlex.join([str(agent_program), "-c", "sleep 30; :"]),
+        ).stdout.strip()
+        self.assertTrue(agent)
+        shell = self.tmux(
+            "split-window", "-t", agent, "-P", "-F", "#{pane_id}", "sleep 30"
+        ).stdout.strip()
+        self.assertTrue(shell)
+        wait_until(lambda: self.show(agent, "#{pane_current_command}") == "codex", "agent starts")
+        client = Client(self)
+        self.clients.append(client)
+        wait_until(lambda: self.client_pane(client) == shell, "client on the source pane")
+
+        wrapper = tools / "tmux"
+        real_tmux = shlex.quote(shutil.which("tmux") or "tmux")
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = paste-buffer ]; then\n'
+            f"  {real_tmux} kill-pane -t {shlex.quote(agent)} || exit $?\n"
+            "fi\n"
+            f'exec {real_tmux} "$@"\n'
+        )
+        wrapper.chmod(0o755)
+        self.tmux("set-environment", "-g", "PATH", f"{tools}:{self.environment['PATH']}")
+        self.tmux("set-buffer", "-b", "keep-me", "other client")
+        original_buffers = self.tmux("list-buffers", "-F", "#{buffer_name}").stdout
+
+        self.press(client, b"A")
+        wait_until(
+            lambda: agent not in self.tmux("list-panes", "-a", "-F", "#{pane_id}").stdout.split(),
+            "agent closes before paste",
+        )
+        wait_until(
+            lambda: self.tmux("list-buffers", "-F", "#{buffer_name}").stdout == original_buffers,
+            "failed paste cleans up only its own buffer",
+        )
+        self.assertEqual(shell, self.client_pane(client))
+        self.assertEqual("other client", self.tmux("show-buffer", "-b", "keep-me").stdout)
 
     def test_signal_return_resets_busy_only_for_the_shells_own_pane(self) -> None:
         """Exercise the consumer's tty proof with a real foreground shell."""
