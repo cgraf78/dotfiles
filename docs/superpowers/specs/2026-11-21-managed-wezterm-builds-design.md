@@ -5,10 +5,12 @@ desktop target. Shdeps checks the executable version on update and installs
 the selected artifacts by checksum. Headless Linux, CI, and WSL keep their
 existing skip behavior.
 
-Record the publisher's URL, version, and checksum in one `wezterm-build.lock`
+Record the snapshot URL, version, and checksum in one `wezterm-build.lock`
 beside the Shdeps hook. WezTerm overwrites its nightly assets and Arch mirrors
-can drop old packages. If the publisher rotates a file, a fresh install or
-repair needs a reviewed repin. Dotfiles carries only dependency declarations.
+can drop old packages, so the dedicated `cgraf78/wezterm-builds` repository
+keeps each reviewed set under its own release tag. Dotfiles carries only the
+generated dependency declaration. The original bytes, signatures, and
+publisher information stay with each snapshot.
 
 The macOS installer uses a managed, versioned user app and links into the
 Shdeps bin directory. The existing system or Homebrew app remains available

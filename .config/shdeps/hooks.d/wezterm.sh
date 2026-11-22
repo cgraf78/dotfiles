@@ -249,8 +249,8 @@ _wezterm_fetch() {
     shdeps_warn "  warning: could not download pinned WezTerm archive: $url"
     return 1
   }
-  # The publisher can replace a nightly at the same URL. Refuse it until the
-  # new build is reviewed and its version and checksum are pinned together.
+  # Refuse any payload that does not match the reviewed snapshot, even if
+  # the release URL and executable version appear unchanged.
   if [[ $(_wezterm_sha256 "$destination") != "$checksum" ]]; then
     shdeps_warn "  warning: WezTerm archive checksum differs from its pin: $url"
     return 1

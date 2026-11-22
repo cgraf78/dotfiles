@@ -4,13 +4,12 @@
 
 The [Shdeps lockfile](../shdeps/hooks.d/wezterm-build.lock) selects the exact
 desktop build per platform. `dot update` checks the executable version and
-installs the selected build if it differs. Shdeps downloads directly from
-the publisher URLs in the lockfile and checks SHA-256 before installation.
-WezTerm can replace nightly assets at the same URL, and Arch mirrors can
-rotate old packages out. If a locked download disappears or changes,
-Shdeps leaves the installed build in place and reports the failure. To
-repin, review the new build and update its version, URL, and checksum in
-the same change.
+installs the selected build if it differs. Shdeps downloads the original
+packages from a versioned [WezTerm snapshot](https://github.com/cgraf78/wezterm-builds)
+and verifies their SHA-256 before installation. Upstream nightly rotation
+does not change these snapshots. To upgrade or roll back, use the
+[snapshot repo's lock generator](https://github.com/cgraf78/wezterm-builds#move-or-roll-back-the-dotfiles-pin)
+for the selected release and review the generated change before landing it.
 
 On macOS, launch `~/Applications/WezTerm.app` to use the managed build. The
 installer puts a `wezterm` launcher in the Shdeps bin directory and keeps a system
