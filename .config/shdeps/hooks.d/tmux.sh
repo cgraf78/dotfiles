@@ -5,14 +5,16 @@
 # deployment keeps its reviewed release even when the Actions repo advances.
 _tmux_load_pin() {
   local lock=${BASH_SOURCE[0]%/*}/tmux-build.lock
-  TMUX_BUILD_VERSION='' TMUX_BUILD_RELEASE=''
+  TMUX_BUILD_VERSION='' TMUX_BUILD_RELEASE='' TMUX_BUILD_REPORTED_VERSION=''
   TMUX_BUILD_LINUX_X86_64='' TMUX_BUILD_LINUX_ARM64=''
   TMUX_BUILD_MACOS_X86_64='' TMUX_BUILD_MACOS_ARM64=''
   [[ -f $lock && -r $lock ]] || return 1
   # shellcheck source=/dev/null
   . "$lock" || return 1
   [[ $TMUX_BUILD_VERSION =~ ^[0-9]+(\.[0-9]+)+[a-z]?$ &&
-    ${TMUX_BUILD_RELEASE#v"$TMUX_BUILD_VERSION"-} =~ ^[0-9]+$ ]]
+    ${TMUX_BUILD_RELEASE#v"$TMUX_BUILD_VERSION"-} =~ ^[0-9]+$ ]] || return 1
+  # Older locks omit the field because their binaries reported upstream's version.
+  TMUX_BUILD_REPORTED_VERSION=${TMUX_BUILD_REPORTED_VERSION:-$TMUX_BUILD_VERSION}
 }
 
 _tmux_root() {
@@ -92,6 +94,12 @@ _tmux_root_owned() {
   _tmux_managed_root "$root"
 }
 
+_tmux_version_matches() {
+  local reported
+  reported=$("$1" -V 2>/dev/null) || return 1
+  [[ $reported == "tmux $TMUX_BUILD_REPORTED_VERSION" ]]
+}
+
 _tmux_root_current() {
   local root marker
   root=$(_tmux_root)
@@ -100,7 +108,7 @@ _tmux_root_current() {
   _tmux_load_pin || return 1
   [[ $(<"$marker") == "version=${TMUX_BUILD_RELEASE#v}" ]] || return 1
   [[ -x $root/tmux && ! -d $root/tmux ]] || return 1
-  "$root/tmux" -V 2>/dev/null | grep -Fx "tmux $TMUX_BUILD_VERSION" >/dev/null
+  _tmux_version_matches "$root/tmux"
 }
 
 _tmux_public_target() {
@@ -280,6 +288,11 @@ install() {
     [[ ! -x $candidate/tmux || -L $candidate/tmux || -d $candidate/tmux ]]; then
     rm -rf -- "$stage"
     shdeps_warn '  warning: tmux archive layout is invalid'
+    return 1
+  fi
+  if ! _tmux_version_matches "$candidate/tmux"; then
+    rm -rf -- "$stage"
+    shdeps_warn "  warning: tmux archive binary does not report tmux $TMUX_BUILD_REPORTED_VERSION"
     return 1
   fi
   rm -f -- "$archive"

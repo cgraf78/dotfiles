@@ -442,6 +442,7 @@ if [[ $floor_major =~ ^[0-9]+$ && $floor_minor =~ ^[0-9]+$ ]] && ((floor_minor >
   above=$floor_major.$((floor_minor + 1))
   tmux_vectors+=" $below:$below ${below}a:$below $below-rc:$below"
   tmux_vectors+=" next-$below:$below $tmux_floor:$tmux_floor $above:$above"
+  tmux_vectors+=" $below-2+builder:$below $tmux_floor-2+builder:$tmux_floor"
   # The next major's first release, which a comparison of the minor alone
   # would refuse.
   next_major=$((floor_major + 1)).0
@@ -498,11 +499,12 @@ for line in sys.stdin:
     print("yes" if tmux_version.supported(version) else "no")
 ')"
 fi
-# The tmux shdeps installs meets the floor.
+# The tmux Shdeps installs meets the floor.
 shdeps_tmux=$(
   # shellcheck source=/dev/null
-  . "$source_home/.config/shdeps/hooks.d/tmux-build.lock" &&
-    printf '%s\n' "$TMUX_BUILD_VERSION"
+  . "$source_home/.config/shdeps/hooks.d/tmux.sh" &&
+    _tmux_load_pin &&
+    printf '%s\n' "$TMUX_BUILD_REPORTED_VERSION"
 )
 if [[ -n $shdeps_tmux ]] && _tmux_supported "$shdeps_tmux"; then
   _pass "tmux: shdeps installs tmux $shdeps_tmux, which meets the floor"
