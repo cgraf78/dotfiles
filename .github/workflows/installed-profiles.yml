@@ -120,7 +120,7 @@ jobs:
           persist-credentials: false
 
       - name: Install profile test prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@9010f3bb0aeb33740332bc230160a42d02dbc810
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@36d1bb6a8070d9dc7dfc85e1d21b2fe9b3721450
         with:
           matrix-name: Ubuntu
           profiles: base,jq,python,zsh,lua,neovim,tmux-pinned,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
