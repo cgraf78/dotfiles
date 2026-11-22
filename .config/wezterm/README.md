@@ -13,7 +13,7 @@ repin, review the new build and update its version, URL, and checksum in
 the same change.
 
 On macOS, launch `~/Applications/WezTerm.app` to use the managed build. The
-installer publishes `wezterm` in the Shdeps bin directory and keeps a system
+installer puts a `wezterm` launcher in the Shdeps bin directory and keeps a system
 or Homebrew app at `/Applications/WezTerm.app` available during migration.
 If the Dock points to that app, replace its shortcut with the one in your
 home Applications folder. Use `wezterm --version` to check the CLI build.
@@ -24,6 +24,10 @@ between Shdeps runs. Linux needs `DISPLAY` or `WAYLAND_DISPLAY` for the hook
 to act. An unsupported desktop target reports a missing pin instead of
 installing a different version. CI, headless Linux, and native Windows under
 WSL keep their existing install behavior.
+
+Update Arch through its normal package manager before applying the pin. The
+current package needs OpenSSL 4 and replaces the older split
+`wezterm-shell-integration` package.
 
 ## Start here for WezTerm edits
 

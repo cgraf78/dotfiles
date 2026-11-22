@@ -248,10 +248,32 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
   # shellcheck disable=SC2329
   shdeps_warn() { printf 'warn:%s\n' "$*" >>"$_wezterm_calls"; }
   # shellcheck disable=SC2329
-  wezterm() { printf 'wezterm %s\n' "$_wezterm_current"; }
+  _wezterm_version() {
+    case "$1" in
+      /usr/bin/wezterm) ;;
+      /usr/bin/wezterm-gui) [[ -z ${_wezterm_missing_gui:-} ]] || return 1 ;;
+      *) return 1 ;;
+    esac
+    printf '%s\n' "$_wezterm_current"
+  }
   # shellcheck disable=SC2329
-  shdeps_curl() {
+  dpkg-query() {
+    [[ -z ${_wezterm_native_missing:-} ]] || return 1
+    printf 'installed\t%s\n' "$_wezterm_current"
+  }
+  # shellcheck disable=SC2329
+  pacman() {
+    case "$*" in
+      '-T openssl>=4') [[ -z ${_wezterm_older_openssl:-} ]] ;;
+      '-Q wezterm') printf 'wezterm test\n' ;;
+      '-Q wezterm-shell-integration') [[ -n ${_wezterm_old_shell_integration:-} ]] ;;
+      *) return 1 ;;
+    esac
+  }
+  # shellcheck disable=SC2329
+  curl() {
     local arg output=''
+    [[ $1 == --disable ]] || return 1
     while (($#)); do
       arg=$1
       shift
@@ -277,6 +299,9 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
     done
     [[ -z ${_wezterm_sudo_fail:-} ]] || return 1
     _wezterm_current=$_wezterm_pin
+    if [[ $1 == dnf ]]; then
+      _wezterm_rpm_versions=("$_wezterm_rpm_version" "$_wezterm_rpm_version" "$_wezterm_rpm_version" "$_wezterm_rpm_version")
+    fi
   }
 
   export CI='' DISPLAY=:99 TMPDIR="$_wezterm_temp"
@@ -286,11 +311,27 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
   if ! _wezterm_current=$_wezterm_pin exists; then
     printf 'FAIL: wezterm rejects the exact pinned version\n'
   fi
+  if _wezterm_native_missing=1 _wezterm_current=$_wezterm_pin exists; then
+    printf 'FAIL: wezterm accepts an executable with no native package\n'
+  fi
+  if _wezterm_missing_gui=1 _wezterm_current=$_wezterm_pin exists; then
+    printf 'FAIL: wezterm accepts a native installation missing the GUI\n'
+  fi
+  (
+    # Match the real Shdeps driver: only process exit 75 asks the parent
+    # to authenticate. A returned status gets translated to install failure.
+    # shellcheck disable=SC2329
+    shdeps_require_sudo() { exit 75; }
+    if install; then exit 0; else exit 14; fi
+  )
+  if [[ $? != 75 || -e $_wezterm_calls ]]; then
+    printf 'FAIL: wezterm loses the parent sudo request or downloads before it\n'
+  fi
   if ! install; then
     printf 'FAIL: wezterm cannot install a verified Ubuntu package\n'
   fi
   if ! grep -Fxq "curl:$_wezterm_nightly/$_wezterm_archive" "$_wezterm_calls" ||
-    ! grep -Fq 'sudo:apt-get install -y --allow-downgrades ' "$_wezterm_calls"; then
+    ! grep -Fq 'sudo:apt-get install -y --allow-downgrades --reinstall ' "$_wezterm_calls"; then
     printf 'FAIL: wezterm does not install the locked Ubuntu archive with APT\n'
   fi
 
@@ -317,15 +358,24 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
   _wezterm_current=$_wezterm_pin
   _wezterm_rpm_version=${_wezterm_pin//-/_}-1.centos9
   _wezterm_rpm_versions=("$_wezterm_rpm_version" "$_wezterm_rpm_version" "older" "$_wezterm_rpm_version")
-  for _wezterm_package in wezterm wezterm-common wezterm-gui wezterm-mux-server; do
+  printf 'centos9-x86_64 %s %s %s/wezterm-nightly-centos9.rpm\n' \
+    "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_nightly" >>"$_wezterm_manifest"
+  if install || grep -Eq '^(curl|sudo):' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm downloads or installs an incomplete RPM group\n'
+  fi
+  : >"$_wezterm_calls"
+  for _wezterm_package in wezterm-common wezterm-gui wezterm-mux-server; do
     printf 'centos9-x86_64 %s %s %s-nightly-centos9.rpm\n' \
       "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_nightly/$_wezterm_package" >>"$_wezterm_manifest"
   done
   if exists; then
     printf 'FAIL: wezterm accepts a split RPM install with an older GUI package\n'
   fi
+  if ! install || ! grep -Eq '^sudo:dnf install -y .*wezterm-nightly.*wezterm-common-nightly.*wezterm-gui-nightly.*wezterm-mux-server-nightly' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm cannot replace an older split RPM set\n'
+  fi
   _wezterm_rpm_versions[2]=$_wezterm_rpm_version
-  if ! exists || ! install || ! grep -Eq '^sudo:dnf install -y .*wezterm-nightly.*wezterm-common-nightly.*wezterm-gui-nightly.*wezterm-mux-server-nightly' "$_wezterm_calls"; then
+  if ! exists || ! install || ! grep -Eq '^sudo:dnf reinstall -y .*wezterm-nightly.*wezterm-common-nightly.*wezterm-gui-nightly.*wezterm-mux-server-nightly' "$_wezterm_calls"; then
     printf 'FAIL: wezterm cannot install and detect the complete pinned RPM set\n'
   fi
 
@@ -336,9 +386,58 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
     printf 'arch-x86_64 %s %s %s\n' \
       "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_arch_mirror/$_wezterm_file" >>"$_wezterm_manifest"
   done
+  : >"$_wezterm_calls"
+  if _wezterm_older_openssl=1 install || _wezterm_old_shell_integration=1 install ||
+    grep -Eq '^(curl|sudo):' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm tries to replace packages on an incompatible Arch install\n'
+  fi
   if ! install || ! grep -Fxq "curl:$_wezterm_arch_mirror/$_wezterm_archive.sig" "$_wezterm_calls" ||
     ! grep -Eq '^sudo:pacman -U --noconfirm [^ ]+\.pkg\.tar\.zst$' "$_wezterm_calls"; then
     printf 'FAIL: wezterm does not pass the pinned package to pacman with its signature staged\n'
+  fi
+
+  if [[ $(command uname -s) == Darwin ]]; then
+    # Exercise real BSD link operations and actual CLI-to-sibling dispatch,
+    # with a tiny fixture bundle in place of the signed upstream archive.
+    # shellcheck source=/dev/null
+    . "$_wezterm_hook"
+    # shellcheck disable=SC2329
+    _wezterm_lock() { printf '%s\n' "$_wezterm_manifest"; }
+    # shellcheck disable=SC2329
+    shdeps_install_dir() { printf '%s\n' "$_wezterm_temp/install"; }
+    # shellcheck disable=SC2329
+    shdeps_bin_dir() { printf '%s\n' "$_wezterm_temp/bin"; }
+    # shellcheck disable=SC2329
+    ditto() {
+      local bin=$4/WezTerm-macos-test/WezTerm.app/Contents/MacOS
+      mkdir -p "$bin" || return 1
+      {
+        # shellcheck disable=SC2016
+        printf '#!/bin/sh\nif [ "$1" = --version ]; then echo "wezterm %s"; exit; fi\n' "$_wezterm_pin"
+        # shellcheck disable=SC2016
+        printf '%s\n' 'exec "${0%/*}/wezterm-gui" "$@"'
+      } >"$bin/wezterm"
+      printf '#!/bin/sh\necho gui\n' >"$bin/wezterm-gui"
+      chmod +x "$bin/wezterm" "$bin/wezterm-gui"
+    }
+    # shellcheck disable=SC2329
+    codesign() { [[ -x $4/Contents/MacOS/wezterm-gui ]]; }
+    _wezterm_target=macos
+    export HOME=$_wezterm_temp/home
+    printf 'macos %s %s %s/WezTerm-macos-nightly.zip\n' \
+      "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_nightly" >>"$_wezterm_manifest"
+    _wezterm_public=$_wezterm_temp/bin/wezterm
+    _wezterm_app=$HOME/Applications/WezTerm.app
+    if ! install || ! exists || [[ $("$_wezterm_public" show-keys) != gui ]]; then
+      printf 'FAIL: wezterm macOS CLI cannot find its bundle GUI\n'
+    else
+      _wezterm_before=$(readlink "$_wezterm_app")
+      mv "$_wezterm_app/Contents/MacOS/wezterm-gui" "$_wezterm_temp/damaged-gui"
+      if exists || ! install || ! exists || [[ $(readlink "$_wezterm_app") == "$_wezterm_before" ]] ||
+        [[ $("$_wezterm_public" show-keys) != gui ]]; then
+        printf 'FAIL: wezterm cannot safely replace a damaged macOS bundle\n'
+      fi
+    fi
   fi
 ) >"$_wezterm_result"
 if [[ -s $_wezterm_result ]]; then
