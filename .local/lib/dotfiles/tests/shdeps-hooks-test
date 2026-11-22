@@ -204,211 +204,150 @@ fi
 echo "=== wezterm hook ==="
 
 _wezterm_hook="$REAL_HOME/.config/shdeps/hooks.d/wezterm.sh"
-# shellcheck source=/dev/null
-. "$_wezterm_hook"
+_wezterm_result=$(_tmpdir)/wezterm-hook-results
+(
+  # shellcheck source=/dev/null
+  . "$_wezterm_hook"
 
-# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
-shdeps_platform() { echo darwin; }
-# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
-shdeps_pkg_mgr() { echo brew; }
-_wezterm_brew=$(_mock_bin)
-cat >"$_wezterm_brew/brew" <<'EOF'
-#!/usr/bin/env bash
-printf 'brew should not run in CI\n' >&2
-exit 1
-EOF
-chmod +x "$_wezterm_brew/brew"
-if CI=1 PATH="$_wezterm_brew:$DOT_TEST_SYSTEM_PATH" exists "wez/wezterm"; then
-  _pass "wezterm: CI satisfies GUI terminal dependency"
-else
-  _fail "wezterm: CI satisfies GUI terminal dependency"
-fi
-if CI=1 PATH="$_wezterm_brew:$DOT_TEST_SYSTEM_PATH" install "wez/wezterm"; then
-  _pass "wezterm: CI install path is a no-op"
-else
-  _fail "wezterm: CI install path is a no-op"
-fi
+  _wezterm_temp=$(_tmpdir)
+  _wezterm_calls=$_wezterm_temp/calls.log
+  _wezterm_target=linux
+  _wezterm_mgr=apt
+  _wezterm_release='ubuntu|24.04'
+  _wezterm_machine=x86_64
+  _wezterm_current=20240203-110809-5046fc22
+  _wezterm_pin=20261121-002403-ee6f3044
+  _wezterm_archive=wezterm-nightly.Ubuntu24.04.deb
+  _wezterm_nightly=https://github.com/wezterm/wezterm/releases/download/nightly
+  _wezterm_arch_mirror=https://geo.mirror.pkgbuild.com/extra/os/x86_64
+  # SHA-256 of the exact bytes emitted by the download fixture.
+  _wezterm_checksum=c7c5c1d70c5dec4416ab6158afd0b223ef40c29b1dc1f97ed9428b94d4cadb1c
+  _wezterm_manifest=$_wezterm_temp/wezterm-build.lock
+  printf 'ubuntu24.04-x86_64 %s %s %s\n' \
+    "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_nightly/$_wezterm_archive" >"$_wezterm_manifest"
 
-_wezterm_calls=$(_tmpdir)/calls.log
-_wezterm_mgr=dnf
-_wezterm_release='centos|9'
-_wezterm_machine=x86_64
-_wezterm_tmp_parent=$(_tmpdir)
-_wezterm_release_json='{"tag_name":"20240203-110809-5046fc22","assets":[{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm"}]}'
-# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
-shdeps_platform() { echo linux; }
-# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
-shdeps_pkg_mgr() { echo "$_wezterm_mgr"; }
-# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
-shdeps_require_sudo() { return 0; }
-# shellcheck disable=SC2329  # hook calls this private helper by name.
-_wezterm_os_release() { echo "$_wezterm_release"; }
-# shellcheck disable=SC2329  # hook calls this platform command by name.
-uname() { echo "$_wezterm_machine"; }
-# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
-shdeps_warn() { printf 'warn:%s\n' "$*" >>"$_wezterm_calls"; }
-# shellcheck disable=SC2329  # hook invokes the platform temporary-file helper.
-mktemp() {
-  printf 'mktemp:%s\n' "$*" >>"$_wezterm_calls"
-  if [[ ${1:-} == -d ]]; then
-    rm -rf "$_wezterm_tmp_parent/stage"
-    mkdir -p "$_wezterm_tmp_parent/stage"
-    printf '%s\n' "$_wezterm_tmp_parent/stage"
-  else
-    : >"$_wezterm_tmp_parent/extensionless"
-    printf '%s\n' "$_wezterm_tmp_parent/extensionless"
-  fi
-}
-# shellcheck disable=SC2329  # hook calls this public shdeps API by name.
-shdeps_curl() {
-  local arg output=""
-  for arg in "$@"; do
-    if [[ "$arg" == https://api.github.com/* ]]; then
-      printf '%s\n' "$_wezterm_release_json"
-      return 0
-    fi
-  done
-  while (($#)); do
-    if [[ "$1" == -o ]]; then
-      output="$2"
-      shift 2
-    else
-      printf 'curl:%s\n' "$1" >>"$_wezterm_calls"
+  # Mock only the platform APIs and package transaction. The hook must read
+  # the real lock format and verify the downloaded bytes before calling sudo.
+  # shellcheck disable=SC2329
+  _wezterm_lock() { printf '%s\n' "$_wezterm_manifest"; }
+  # shellcheck disable=SC2329
+  shdeps_platform() { printf '%s\n' "$_wezterm_target"; }
+  # shellcheck disable=SC2329
+  shdeps_pkg_mgr() { printf '%s\n' "$_wezterm_mgr"; }
+  # shellcheck disable=SC2329
+  rpm() {
+    printf '%s\n' "$@" >/dev/null
+    printf '%s\n' "${_wezterm_rpm_versions[@]}"
+  }
+  # shellcheck disable=SC2329
+  _wezterm_os_release() { printf '%s\n' "$_wezterm_release"; }
+  # shellcheck disable=SC2329
+  uname() { printf '%s\n' "$_wezterm_machine"; }
+  # shellcheck disable=SC2329
+  shdeps_require_sudo() { return 0; }
+  # shellcheck disable=SC2329
+  shdeps_warn() { printf 'warn:%s\n' "$*" >>"$_wezterm_calls"; }
+  # shellcheck disable=SC2329
+  wezterm() { printf 'wezterm %s\n' "$_wezterm_current"; }
+  # shellcheck disable=SC2329
+  shdeps_curl() {
+    local arg output=''
+    while (($#)); do
+      arg=$1
       shift
-    fi
-  done
-  if [[ -n ${_wezterm_download_fail:-} ]]; then
-    return 1
+      case $arg in
+        https://*) printf 'curl:%s\n' "$arg" >>"$_wezterm_calls" ;;
+        -o)
+          output=$1
+          shift
+          ;;
+      esac
+    done
+    [[ -n $output ]] || return 1
+    printf '%s' "${_wezterm_payload:-artifact}" >"$output"
+  }
+  # shellcheck disable=SC2329
+  sudo() {
+    local item
+    printf 'sudo:%s\n' "$*" >>"$_wezterm_calls"
+    for item in "$@"; do
+      case $item in
+        /*.deb | /*.rpm) [[ -f $item ]] || return 1 ;;
+      esac
+    done
+    [[ -z ${_wezterm_sudo_fail:-} ]] || return 1
+    _wezterm_current=$_wezterm_pin
+  }
+
+  export CI='' DISPLAY=:99 TMPDIR="$_wezterm_temp"
+  if exists; then
+    printf 'FAIL: wezterm accepts an installed version that differs from its pin\n'
   fi
-  [[ -z "$output" ]] || : >"$output"
-}
-# shellcheck disable=SC2329  # hook invokes sudo by name.
-sudo() {
-  printf 'sudo:%s\n' "$*" >>"$_wezterm_calls"
-  [[ -z ${_wezterm_sudo_fail:-} ]]
-}
-_assert_eq "wezterm: Ubuntu keeps its native release asset" \
-  "Ubuntu24.04" "$(_wezterm_asset_pattern ubuntu 24.04)"
-_assert_eq "wezterm: Debian keeps its native release asset" \
-  "Debian12" "$(_wezterm_asset_pattern debian 12)"
-_assert_eq "wezterm: Fedora keeps its native release asset" \
-  "Fedora42" "$(_wezterm_asset_pattern fedora 42)"
-for _wezterm_rhel_id in centos rhel rocky almalinux; do
-  _assert_eq "wezterm: $_wezterm_rhel_id uses the CentOS-compatible RPM" \
-    "centos9" "$(_wezterm_asset_pattern "$_wezterm_rhel_id" 9.6 2>/dev/null)"
-done
-if CI='' DISPLAY=:99 install "wezterm"; then
-  _pass "wezterm: CentOS desktop installs the official CentOS major-version RPM"
-else
-  _fail "wezterm: CentOS desktop installs the official CentOS major-version RPM"
-fi
-_assert_contains "wezterm: CentOS desktop selects the CentOS 9 release asset" \
-  "wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm" \
-  "$(cat "$_wezterm_calls" 2>/dev/null)"
-_assert_contains "wezterm: CentOS stages an RPM filename for DNF" \
-  "sudo:dnf install -y $_wezterm_tmp_parent/stage/wezterm.rpm" \
-  "$(cat "$_wezterm_calls")"
-_assert_file_missing "wezterm: CentOS removes its package staging directory" \
-  "$_wezterm_tmp_parent/stage"
-
-_wezterm_sudo_fail=1
-: >"$_wezterm_calls"
-if CI='' DISPLAY=:99 install "wezterm"; then
-  _fail "wezterm: failed DNF install remains visible"
-else
-  _pass "wezterm: failed DNF install remains visible"
-fi
-unset _wezterm_sudo_fail
-_assert_file_missing "wezterm: failed DNF install removes its staging directory" \
-  "$_wezterm_tmp_parent/stage"
-
-_wezterm_download_fail=1
-: >"$_wezterm_calls"
-if CI='' DISPLAY=:99 install "wezterm"; then
-  _fail "wezterm: failed RPM download remains visible"
-else
-  _pass "wezterm: failed RPM download remains visible"
-fi
-unset _wezterm_download_fail
-_assert_file_missing "wezterm: failed RPM download removes its staging directory" \
-  "$_wezterm_tmp_parent/stage"
-_assert_not_contains "wezterm: failed RPM download does not invoke DNF" \
-  "sudo:" "$(cat "$_wezterm_calls")"
-
-# shellcheck disable=SC2329  # hook invokes the platform cleanup command.
-rm() {
-  local arg last=""
-  for arg in "$@"; do
-    last=$arg
-  done
-  if [[ -n ${_wezterm_cleanup_fail:-} && $last == "$_wezterm_tmp_parent/stage" ]]; then
-    return 1
+  if ! _wezterm_current=$_wezterm_pin exists; then
+    printf 'FAIL: wezterm rejects the exact pinned version\n'
   fi
-  command rm "$@"
-}
-_wezterm_download_fail=1
-_wezterm_cleanup_fail=1
-: >"$_wezterm_calls"
-if CI='' DISPLAY=:99 install "wezterm"; then
-  _fail "wezterm: failed download and cleanup remains visible"
-else
-  _pass "wezterm: failed download and cleanup remains visible"
-fi
-unset _wezterm_download_fail _wezterm_cleanup_fail
-_assert_contains "wezterm: failed download reports staging cleanup failure" \
-  "failed to clean up wezterm package staging directory" \
-  "$(cat "$_wezterm_calls")"
-unset -f rm
-command rm -rf "$_wezterm_tmp_parent/stage"
+  if ! install; then
+    printf 'FAIL: wezterm cannot install a verified Ubuntu package\n'
+  fi
+  if ! grep -Fxq "curl:$_wezterm_nightly/$_wezterm_archive" "$_wezterm_calls" ||
+    ! grep -Fq 'sudo:apt-get install -y --allow-downgrades ' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm does not install the locked Ubuntu archive with APT\n'
+  fi
 
-_wezterm_mgr=apt
-_wezterm_release='ubuntu|22.04'
-_wezterm_release_json='{"tag_name":"20240203-110809-5046fc22","assets":[{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.Ubuntu22.04.arm64.deb"},{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.Ubuntu22.04.deb"}]}'
-_wezterm_machine=x86_64
-: >"$_wezterm_calls"
-if CI='' DISPLAY=:99 install "wezterm"; then
-  _pass "wezterm: x86_64 Debian-family desktop installs a native asset"
-else
-  _fail "wezterm: x86_64 Debian-family desktop installs a native asset"
-fi
-_assert_contains "wezterm: x86_64 Debian-family desktop selects the generic amd64 package" \
-  "wezterm-20240203_110809_5046fc22-1.Ubuntu22.04.deb" \
-  "$(cat "$_wezterm_calls")"
-_assert_not_contains "wezterm: x86_64 Debian-family desktop rejects the ARM package" \
-  ".Ubuntu22.04.arm64.deb" "$(cat "$_wezterm_calls")"
-_assert_contains "wezterm: Debian stages a DEB filename for dpkg" \
-  "sudo:dpkg -i $_wezterm_tmp_parent/stage/wezterm.deb" \
-  "$(cat "$_wezterm_calls")"
-_assert_file_missing "wezterm: Debian removes its package staging directory" \
-  "$_wezterm_tmp_parent/stage"
+  : >"$_wezterm_calls"
+  if _wezterm_payload=corrupt install || grep -q '^sudo:' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm lets corrupt archive bytes reach the package manager\n'
+  fi
+  : >"$_wezterm_calls"
+  if _wezterm_machine=aarch64 install || grep -q '^sudo:' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm substitutes an x86 package when the ARM pin is missing\n'
+  fi
+  : >"$_wezterm_calls"
+  if _wezterm_sudo_fail=1 install; then
+    printf 'FAIL: wezterm hides a package manager failure\n'
+  fi
+  : >"$_wezterm_calls"
+  if ! CI=1 install || ! _wezterm_target=wsl install ||
+    ! DISPLAY='' WAYLAND_DISPLAY='' install || [[ -s $_wezterm_calls ]]; then
+    printf 'FAIL: wezterm installs in CI, WSL, or headless Linux\n'
+  fi
 
-_wezterm_machine=aarch64
-: >"$_wezterm_calls"
-if CI='' DISPLAY=:99 install "wezterm"; then
-  _pass "wezterm: ARM Debian-family desktop installs a native asset"
-else
-  _fail "wezterm: ARM Debian-family desktop installs a native asset"
-fi
-_assert_contains "wezterm: ARM Debian-family desktop selects the arm64 package" \
-  ".Ubuntu22.04.arm64.deb" "$(cat "$_wezterm_calls")"
+  _wezterm_mgr=dnf
+  _wezterm_release='rocky|9.7'
+  _wezterm_current=$_wezterm_pin
+  _wezterm_rpm_version=${_wezterm_pin//-/_}-1.centos9
+  _wezterm_rpm_versions=("$_wezterm_rpm_version" "$_wezterm_rpm_version" "older" "$_wezterm_rpm_version")
+  for _wezterm_package in wezterm wezterm-common wezterm-gui wezterm-mux-server; do
+    printf 'centos9-x86_64 %s %s %s-nightly-centos9.rpm\n' \
+      "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_nightly/$_wezterm_package" >>"$_wezterm_manifest"
+  done
+  if exists; then
+    printf 'FAIL: wezterm accepts a split RPM install with an older GUI package\n'
+  fi
+  _wezterm_rpm_versions[2]=$_wezterm_rpm_version
+  if ! exists || ! install || ! grep -Eq '^sudo:dnf install -y .*wezterm-nightly.*wezterm-common-nightly.*wezterm-gui-nightly.*wezterm-mux-server-nightly' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm cannot install and detect the complete pinned RPM set\n'
+  fi
 
-_wezterm_mgr=dnf
-_wezterm_release='centos|9'
-_wezterm_release_json='{"tag_name":"20240203-110809-5046fc22","assets":[{"browser_download_url":"https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm"}]}'
-: >"$_wezterm_calls"
-if CI='' DISPLAY=:99 install "wezterm"; then
-  _fail "wezterm: ARM RHEL-family desktop rejects x86_64-only releases"
+  _wezterm_mgr=pacman
+  _wezterm_release='arch|'
+  _wezterm_archive=wezterm-test-x86_64.pkg.tar.zst
+  for _wezterm_file in "$_wezterm_archive" "$_wezterm_archive.sig"; do
+    printf 'arch-x86_64 %s %s %s\n' \
+      "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_arch_mirror/$_wezterm_file" >>"$_wezterm_manifest"
+  done
+  if ! install || ! grep -Fxq "curl:$_wezterm_arch_mirror/$_wezterm_archive.sig" "$_wezterm_calls" ||
+    ! grep -Eq '^sudo:pacman -U --noconfirm [^ ]+\.pkg\.tar\.zst$' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm does not pass the pinned package to pacman with its signature staged\n'
+  fi
+) >"$_wezterm_result"
+if [[ -s $_wezterm_result ]]; then
+  while IFS= read -r _wezterm_error; do
+    _fail "$_wezterm_error"
+  done <"$_wezterm_result"
 else
-  _pass "wezterm: ARM RHEL-family desktop rejects x86_64-only releases"
+  _pass "WezTerm enforces the platform pin before changing installed packages"
 fi
-_assert_not_contains "wezterm: ARM RHEL-family desktop does not download the x86_64 RPM" \
-  "curl:https://github.com/wez/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203_110809_5046fc22-1.centos9.x86_64.rpm" \
-  "$(cat "$_wezterm_calls")"
-
-unset -f exists version install mktemp shdeps_platform shdeps_pkg_mgr \
-  shdeps_require_sudo shdeps_curl shdeps_warn sudo uname \
-  _wezterm_arch _wezterm_asset_pattern _wezterm_os_release \
-  _wezterm_select_asset
 
 echo "=== xclip hook ==="
 

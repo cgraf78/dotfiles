@@ -30,6 +30,7 @@ program	.config/shell/interactive.d/57-marks.sh
 program	.config/shell/interactive.d/59-prompt.sh
 program	.config/shell/interactive.d/60-prompt.bash
 program	.config/shell/interactive.d/70-integrations.bash
+program	.config/wezterm/shell-integration.sh
 program	.local/bin/browser-open
 program	.local/bin/clip
 program	.local/bin/dot-worktree-gc

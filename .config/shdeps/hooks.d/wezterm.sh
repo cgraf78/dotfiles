@@ -1,191 +1,256 @@
 # shellcheck shell=bash
-# Hook for wezterm — GPU-accelerated terminal emulator.
+# Install the reviewed WezTerm snapshot for this desktop target.
 
-_wezterm_ver() {
-  wezterm --version 2>/dev/null | awk '{v=$2; if (v ~ /^[0-9a-f]{40}$/) print "commit " substr(v,1,7); else print v}'
+_wezterm_lock() {
+  printf '%s\n' "${BASH_SOURCE[0]%/*}/wezterm-build.lock"
 }
 
 _wezterm_os_release() {
-  local distro_id="" distro_ver=""
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
+  local ID='' VERSION_ID=''
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck source=/dev/null
     . /etc/os-release
-    distro_id="${ID:-}"
-    distro_ver="${VERSION_ID:-}"
   fi
-  printf '%s|%s\n' "$distro_id" "$distro_ver"
+  printf '%s|%s\n' "$ID" "$VERSION_ID"
 }
 
-_wezterm_asset_pattern() {
-  local distro_id="$1" distro_ver="$2"
-  case "$distro_id" in
-    ubuntu) printf 'Ubuntu%s\n' "$distro_ver" ;;
-    debian) printf 'Debian%s\n' "$distro_ver" ;;
-    fedora) printf 'Fedora%s\n' "$distro_ver" ;;
-    centos | rhel | rocky | almalinux)
-      printf 'centos%s\n' "${distro_ver%%.*}"
-      ;;
+_wezterm_skip() {
+  [[ -n "${CI:-}" ]] || case "$1" in
+    macos) return 1 ;;
+    linux) [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]] ;;
+    *) return 0 ;; # Includes Windows-native WezTerm under WSL.
   esac
 }
 
-_wezterm_arch() {
+_wezterm_target() {
+  local os=$1 arch release distro revision
   case "$(uname -m)" in
-    x86_64 | amd64) printf 'x86_64\n' ;;
-    aarch64 | arm64) printf 'arm64\n' ;;
-  esac
-}
-
-_wezterm_select_asset() {
-  local all_urls="$1" pattern="$2" ext="$3" arch="$4"
-  local asset lower_pattern lower_asset suffix
-
-  lower_pattern=$(printf '%s' "$pattern" | tr '[:upper:]' '[:lower:]')
-  case "$ext:$arch" in
-    deb:x86_64) suffix="${lower_pattern}.deb" ;;
-    deb:arm64) suffix="${lower_pattern}.arm64.deb" ;;
-    rpm:x86_64) suffix="${lower_pattern}.x86_64.rpm" ;;
+    x86_64 | amd64) arch=x86_64 ;;
+    aarch64 | arm64) arch=arm64 ;;
     *) return 1 ;;
   esac
-
-  while IFS= read -r asset; do
-    lower_asset=$(printf '%s' "$asset" | tr '[:upper:]' '[:lower:]')
-    if [[ "$lower_asset" == *"$suffix" ]]; then
-      printf '%s\n' "$asset"
-      return 0
-    fi
-  done <<<"$all_urls"
-
-  return 1
+  if [[ $os == macos ]]; then
+    printf 'macos\n'
+    return
+  fi
+  release=$(_wezterm_os_release)
+  distro=${release%%|*}
+  revision=${release#*|}
+  case "$distro" in
+    centos | rhel | rocky | almalinux)
+      distro=centos
+      revision=${revision%%.*}
+      ;;
+  esac
+  printf '%s%s-%s\n' "$distro" "$revision" "$arch"
 }
 
-exists() {
-  # WSL: WezTerm runs as a Windows-native app; not managed here.
-  local platform
-  platform=$(shdeps_platform)
-  [[ "$platform" == "wsl" ]] && return 0
+# Callers declare the outputs locally. An RPM target can have several files
+# but all of them must come from the same executable build.
+_wezterm_pin() {
+  local target=$1 row version digest url extra lock
+  lock=$(_wezterm_lock)
+  [[ -r $lock ]] || return 1
+  while read -r row version digest url extra; do
+    [[ $row == "$target" ]] || continue
+    [[ $version =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ &&
+      $digest =~ ^[0-9a-f]{64}$ &&
+      $url == https://*/* && ${url##*/} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ &&
+      -z $extra && (-z $expected || $expected == "$version") ]] || return 1
+    expected=$version
+    urls+=("$url")
+    digests+=("$digest")
+  done <"$lock"
+  [[ -n $expected ]]
+}
 
-  # CI should verify dotfiles' WezTerm configuration and wrappers, not install a
-  # GUI terminal into an ephemeral runner. Treating CI as satisfied keeps normal
-  # desktop installs unchanged while avoiding cask/package flakiness in tests.
-  [[ -n "${CI:-}" ]] && return 0
+_wezterm_app() {
+  printf '%s/Applications/WezTerm.app\n' "$HOME"
+}
 
-  # Headless Linux: skip to avoid pulling in GUI dependencies.
-  [[ "$platform" == "linux" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]] && return 0
+_wezterm_payload() {
+  local install_dir
+  install_dir=$(shdeps_install_dir) || return 1
+  printf '%s/wezterm/%s-%s/WezTerm.app\n' "$install_dir" "$1" "$2"
+}
 
-  command -v wezterm &>/dev/null
+_wezterm_version() {
+  local result
+  result=$("$1" --version 2>/dev/null) || return 1
+  [[ $result == 'wezterm '* ]] || return 1
+  printf '%s\n' "${result#wezterm }"
 }
 
 version() {
-  _wezterm_ver
+  local os
+  os=$(shdeps_platform) || return 1
+  if [[ $os == macos ]]; then
+    _wezterm_version "$(_wezterm_app)/Contents/MacOS/wezterm"
+  else
+    _wezterm_version wezterm
+  fi
 }
 
-install() {
-  local platform
-  platform=$(shdeps_platform)
+exists() {
+  local os target expected='' urls=() digests=()
+  os=$(shdeps_platform) || return 1
+  _wezterm_skip "$os" && return 0
+  target=$(_wezterm_target "$os") || return 1
+  _wezterm_pin "$target" || return 1
+  if [[ $os == macos ]]; then
+    local app bin_dir payload
+    app=$(_wezterm_app)
+    bin_dir=$(shdeps_bin_dir) || return 1
+    payload=$(_wezterm_payload "$expected" "${digests[0]}") || return 1
+    [[ $(readlink "$app") == "$payload" &&
+    $(readlink "$bin_dir/wezterm") == "$app/Contents/MacOS/wezterm" ]] || return 1
+  elif [[ $(shdeps_pkg_mgr) == dnf ]]; then
+    # The RPM metapackage does not enforce equal versions of its components.
+    # The CLI belongs to wezterm-common and cannot prove the GUI is current.
+    local package_version installed
+    package_version=${expected//-/_}-1.${target%-x86_64}
+    installed=$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' \
+      wezterm wezterm-common wezterm-gui wezterm-mux-server) || return 1
+    [[ $installed == "$(printf '%s\n' "$package_version" "$package_version" \
+      "$package_version" "$package_version")" ]] || return 1
+  fi
+  [[ $(version) == "$expected" ]]
+}
 
-  # Safety net: skip on WSL/headless (exists() should have caught this)
-  if [[ "$platform" == "wsl" ]]; then return 0; fi
-  if [[ -n "${CI:-}" ]]; then return 0; fi
-  if [[ "$platform" == "linux" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then return 0; fi
+_wezterm_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
 
-  local mgr
-  mgr=$(shdeps_pkg_mgr)
+_wezterm_fetch() {
+  local url=$1 checksum=$2 destination=$3
+  shdeps_curl -fsSL --proto '=https' --proto-redir '=https' --no-netrc \
+    -H 'Authorization:' "$url" -o "$destination" || {
+    shdeps_warn "  warning: could not download pinned WezTerm archive: $url"
+    return 1
+  }
+  # The publisher can replace a nightly at the same URL. Refuse it until the
+  # new build is reviewed and its version and checksum are pinned together.
+  if [[ $(_wezterm_sha256 "$destination") != "$checksum" ]]; then
+    shdeps_warn "  warning: WezTerm archive checksum differs from its pin: $url"
+    return 1
+  fi
+}
 
-  case "$mgr" in
-    brew)
-      if shdeps_reinstall && brew list --cask wezterm &>/dev/null; then
-        brew upgrade --cask wezterm &>/dev/null || return 1
-      else
-        brew install --cask wezterm &>/dev/null || return 1
-      fi
-      return 0
-      ;;
-    pacman)
-      local pacman_flags=(--noconfirm)
-      shdeps_reinstall || pacman_flags+=(--needed)
-      sudo pacman -S "${pacman_flags[@]}" wezterm &>/dev/null || return 1
-      return 0
-      ;;
-  esac
+# Keep the existing system app available when adopting the pin. Both the CLI
+# and Finder shortcut follow one symlink switched on the Applications volume.
+_wezterm_macos() (
+  local archive=$1 expected=$2 checksum=$3
+  local app bin_dir root staged bundle target cli scratch
+  app=$(_wezterm_app)
+  bin_dir=$(shdeps_bin_dir) || return 1
+  cli=$bin_dir/wezterm
+  target=$(_wezterm_payload "$expected" "$checksum") || return 1
+  root=${target%/*/*}
 
-  # apt/dnf: download .deb/.rpm from GitHub releases.
-  local ext
-  case "$mgr" in
-    apt) ext="deb" ;;
-    dnf) ext="rpm" ;;
-    *)
-      shdeps_warn "  warning: no install method for wezterm on ${mgr:-unknown}"
+  if [[ -e $app || -L $app ]]; then
+    case "$(readlink "$app")" in
+      "$root/"*/WezTerm.app) ;;
+      *)
+        shdeps_warn "  warning: preserving an unmanaged WezTerm app at $app"
+        return 1
+        ;;
+    esac
+  fi
+  if [[ -e $cli || -L $cli ]]; then
+    if [[ $(readlink "$cli") != "$app/Contents/MacOS/wezterm" ]]; then
+      shdeps_warn "  warning: preserving an unmanaged WezTerm command at $cli"
       return 1
-      ;;
-  esac
-
-  if ! shdeps_require_sudo; then
-    shdeps_warn "  warning: sudo not available — cannot install wezterm"
-    return 1
-  fi
-
-  local release_json latest_tag
-  release_json=$(shdeps_curl -fsSL --no-netrc -H "Authorization:" \
-    "https://api.github.com/repos/wez/wezterm/releases/latest" 2>/dev/null) || {
-    shdeps_warn "  warning: couldn't fetch wezterm release info"
-    return 1
-  }
-  latest_tag=$(echo "$release_json" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-  if [[ -z "$latest_tag" ]]; then
-    shdeps_warn "  warning: couldn't determine latest wezterm version"
-    return 1
-  fi
-
-  local distro_id="" distro_ver="" distro_release arch
-  distro_release=$(_wezterm_os_release)
-  distro_id=${distro_release%%|*}
-  distro_ver=${distro_release#*|}
-  arch=$(_wezterm_arch)
-
-  local all_urls asset_url=""
-  all_urls=$(echo "$release_json" |
-    grep -o '"browser_download_url":[[:space:]]*"[^"]*\.'"$ext"'"' |
-    cut -d'"' -f4)
-
-  if [[ -n "$distro_id" && -n "$distro_ver" && -n "$arch" ]]; then
-    local pattern=""
-    pattern=$(_wezterm_asset_pattern "$distro_id" "$distro_ver")
-    if [[ -n "$pattern" ]]; then
-      asset_url=$(_wezterm_select_asset "$all_urls" "$pattern" "$ext" "$arch")
     fi
   fi
+  [[ ! -L $root && ! -L ${target%/*} && ! -L $target ]] || return 1
+  mkdir -p "${app%/*}" "$bin_dir" "${target%/*}" || return 1
+  staged=$(mktemp -d "$root/.stage.XXXXXXXX") || return 1
+  scratch=''
+  trap 'rm -rf -- "$staged"; [[ -z $scratch ]] || rm -rf -- "$scratch"' EXIT
+  if [[ ! -e $target ]]; then
+    ditto -x -k "$archive" "$staged" || return 1
+    local bundles=("$staged"/WezTerm-macos-*/WezTerm.app)
+    [[ ${#bundles[@]} -eq 1 && -d "${bundles[0]}" ]] || return 1
+    bundle=${bundles[0]}
+    codesign --verify --deep --strict "$bundle" || return 1
+    [[ $(_wezterm_version "$bundle/Contents/MacOS/wezterm") == "$expected" ]] ||
+      return 1
+    # The version directory may already exist after an interrupted install or
+    # deletion of the app. Publish the validated bundle at the exact leaf.
+    mv -- "$bundle" "$target" || return 1
+  else
+    codesign --verify --deep --strict "$target" || return 1
+  fi
+  [[ $(_wezterm_version "$target/Contents/MacOS/wezterm") == "$expected" ]] ||
+    return 1
+  scratch=$(mktemp -d "${app%/*}/.wezterm-link.XXXXXXXX") || return 1
+  ln -s "$target" "$scratch/WezTerm.app" || return 1
 
-  if [[ -z "$asset_url" ]]; then
-    shdeps_warn "  warning: no .$ext asset matched ${distro_id:-unknown} ${distro_ver:-} ${arch:-unknown} for wezterm $latest_tag"
+  local cli_created=0
+  if [[ ! -L $cli ]]; then
+    ln -s "$app/Contents/MacOS/wezterm" "$cli" || return 1
+    cli_created=1
+  fi
+  # BSD mv -h replaces the app symlink instead of following its destination.
+  if ! mv -fh -- "$scratch/WezTerm.app" "$app"; then
+    ((cli_created == 0)) || rm -f -- "$cli"
     return 1
   fi
+)
 
-  local tmp_dir tmp
-  tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/wezterm.XXXXXX") || {
-    shdeps_warn "  warning: couldn't create wezterm package staging directory"
-    return 1
-  }
-  tmp="$tmp_dir/wezterm.$ext"
-  if ! shdeps_curl -fsSL "$asset_url" -o "$tmp" 2>/dev/null; then
-    if ! rm -rf "$tmp_dir"; then
-      shdeps_warn "  warning: failed to clean up wezterm package staging directory"
-    fi
-    shdeps_warn "  warning: failed to download wezterm"
-    return 1
-  fi
-
-  local rc=0
-  case "$ext" in
-    deb)
-      sudo dpkg -i "$tmp" &>/dev/null || true
-      sudo apt-get install -f -y &>/dev/null || rc=$?
+_wezterm_linux() {
+  local manager package pacman_packages=()
+  manager=$(shdeps_pkg_mgr) || return 1
+  case "$manager" in
+    apt) sudo apt-get install -y --allow-downgrades "$@" ;;
+    dnf) sudo dnf install -y "$@" ;;
+    pacman)
+      # Pacman reads the detached signature beside the named package.
+      for package in "$@"; do
+        [[ $package == *.pkg.tar.zst ]] && pacman_packages+=("$package")
+      done
+      [[ ${#pacman_packages[@]} -eq 1 && -f ${pacman_packages[0]}.sig ]] || return 1
+      sudo pacman -U --noconfirm "${pacman_packages[0]}"
       ;;
-    rpm) sudo dnf install -y "$tmp" &>/dev/null || rc=$? ;;
+    *) return 1 ;;
   esac
-  if ! rm -rf "$tmp_dir"; then
-    shdeps_warn "  warning: failed to clean up wezterm package staging directory"
-    return 1
-  fi
-
-  [[ $rc -eq 0 ]]
 }
+
+install() (
+  local os target expected='' urls=() digests=() packages=() tmp index url
+  os=$(shdeps_platform) || return 1
+  _wezterm_skip "$os" && return 0
+  target=$(_wezterm_target "$os") || return 1
+  _wezterm_pin "$target" || {
+    shdeps_warn "  warning: no valid WezTerm build pin for $target"
+    return 1
+  }
+  # Shdeps may restart the hook after prompting for sudo. Do that before
+  # spending time on downloads, but call the package manager only after verify.
+  if [[ $os == linux ]]; then
+    shdeps_require_sudo || return 1
+  fi
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/wezterm.XXXXXXXX") || return 1
+  trap 'rm -rf -- "$tmp"' EXIT
+  for index in "${!urls[@]}"; do
+    url=${urls[index]}
+    packages+=("$tmp/${url##*/}")
+    _wezterm_fetch "$url" "${digests[index]}" "${packages[index]}" ||
+      return 1
+  done
+  if [[ $os == macos ]]; then
+    [[ ${#packages[@]} -eq 1 ]] || return 1
+    _wezterm_macos "${packages[0]}" "$expected" "${digests[0]}" || return 1
+  else
+    _wezterm_linux "${packages[@]}" || return 1
+  fi
+  if ! exists; then
+    shdeps_warn "  warning: WezTerm did not converge to build $expected"
+    return 1
+  fi
+)

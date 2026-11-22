@@ -1,5 +1,30 @@
 # WezTerm Config
 
+## Installed build
+
+The [Shdeps lockfile](../shdeps/hooks.d/wezterm-build.lock) selects the exact
+desktop build per platform. `dot update` checks the executable version and
+installs the selected build if it differs. Shdeps downloads directly from
+the publisher URLs in the lockfile and checks SHA-256 before installation.
+WezTerm can replace nightly assets at the same URL, and Arch mirrors can
+rotate old packages out. If a locked download disappears or changes,
+Shdeps leaves the installed build in place and reports the failure. To
+repin, review the new build and update its version, URL, and checksum in
+the same change.
+
+On macOS, launch `~/Applications/WezTerm.app` to use the managed build. The
+installer publishes `wezterm` in the Shdeps bin directory and keeps a system
+or Homebrew app at `/Applications/WezTerm.app` available during migration.
+If the Dock points to that app, replace its shortcut with the one in your
+home Applications folder. Use `wezterm --version` to check the CLI build.
+
+On Linux, the hook selects by distro, release, and architecture. It uses the
+native package manager, so a system upgrade can change the installed build
+between Shdeps runs. Linux needs `DISPLAY` or `WAYLAND_DISPLAY` for the hook
+to act. An unsupported desktop target reports a missing pin instead of
+installing a different version. CI, headless Linux, and native Windows under
+WSL keep their existing install behavior.
+
 ## Start here for WezTerm edits
 
 WezTerm is the primary terminal and the reference behavior for the other
@@ -257,7 +282,7 @@ an outer tab does not acknowledge hidden inner panes; tmux's existing
 selection/focus policy owns acknowledgement. Pane-global acknowledgement by
 one attached client remains acknowledgement for the other clients too.
 
-The stable 2024 WezTerm build is sufficient. Its formatter must stay
+The formatter supports the stable 2024 WezTerm build. It must stay
 process-free; the status callback only inspects cached mux data. A local
 reception lease hides stale snapshots after a lost publisher, including while
 the terminal is otherwise quiet. Reconnection replays the source state. The

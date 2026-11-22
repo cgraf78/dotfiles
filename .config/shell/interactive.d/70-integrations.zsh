@@ -21,13 +21,7 @@ setopt INTERACTIVE_COMMENTS
 if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
     test -e "${HOME}/.iterm2_shell_integration.zsh" && . "${HOME}/.iterm2_shell_integration.zsh"
-    # Guard: wezterm.sh has no re-source protection for zsh — it appends
-    # duplicate hooks to precmd/preexec_functions on every source, causing
-    # gradual prompt slowdown in long-lived shells.
-    if [[ -z "${__wezterm_sourced:-}" ]]; then
-      test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
-      __wezterm_sourced=1
-    fi
+    . "$HOME/.config/wezterm/shell-integration.sh"
   fi
 fi
 
