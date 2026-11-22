@@ -719,8 +719,13 @@ if [[ -f $_tmux_hook ]]; then
     cp "$_tmux_archive_root/tmux.tar.gz" "$output"
   }
   _tmux_write_fixture_lock() {
-    printf '%s\n' 'TMUX_BUILD_VERSION=9.7' "TMUX_BUILD_RELEASE=$1" \
-      "TMUX_BUILD_LINUX_X86_64=$2" >"$_tmux_fixture_hooks/tmux-build.lock"
+    {
+      printf '%s\n' 'TMUX_BUILD_VERSION=9.7' "TMUX_BUILD_RELEASE=$1" \
+        "TMUX_BUILD_LINUX_X86_64=$2"
+      if [[ $# -gt 2 ]]; then
+        printf 'TMUX_BUILD_REPORTED_VERSION=%s\n' "$3"
+      fi
+    } >"$_tmux_fixture_hooks/tmux-build.lock"
   }
   # shellcheck disable=SC2329 # Linux fixture takes the archive path.
   shdeps_platform() { printf '%s\n' linux; }
@@ -823,6 +828,40 @@ if [[ -f $_tmux_hook ]]; then
   install tmux
   _assert_eq "tmux: managed older version upgrades to the pinned version" \
     "tmux 9.7" "$("$_tmux_bin/tmux" -V)"
+
+  printf '%s\n' '#!/usr/bin/env bash' '# Current managed payload.' \
+    'printf "tmux 9.7\n"' >"$_tmux_managed/tmux"
+  _tmux_previous_payload=$(<"$_tmux_managed/tmux")
+  _tmux_write_fixture_lock v9.7-3 "$_tmux_fixture_sha" 9.7-3+cgraf78
+  _tmux_asset
+  _assert_eq "tmux: archive filename uses the upstream version for a branded build" \
+    'https://github.com/cgraf78/tmux-builds/releases/download/v9.7-3/tmux-9.7-linux-x86_64.tar.gz' \
+    "$REPLY_URL"
+  if install tmux; then
+    _fail "tmux: rejects a verified archive whose binary reports the wrong version"
+  else
+    _pass "tmux: rejects a verified archive whose binary reports the wrong version"
+  fi
+  _assert_file_content "tmux: a version mismatch preserves the previous release marker" \
+    'version=9.7-2' "$_tmux_managed/.shdeps-tmux-build"
+  _assert_eq "tmux: a version mismatch preserves the previous executable" \
+    "$_tmux_previous_payload" "$(<"$_tmux_managed/tmux")"
+
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 9.7-3+cgraf78\n"' \
+    >"$_tmux_archive_root/payload/tmux"
+  tar -czf "$_tmux_archive_root/tmux.tar.gz" -C "$_tmux_archive_root/payload" tmux
+  _tmux_branded_sha=$(sha256sum "$_tmux_archive_root/tmux.tar.gz" | awk '{print $1}')
+  _tmux_write_fixture_lock v9.7-3 "$_tmux_branded_sha" 9.7-3+cgraf78
+  install tmux
+  _assert_eq "tmux: the public binary reports the full locked version" \
+    'tmux 9.7-3+cgraf78' "$("$_tmux_bin/tmux" -V)"
+  _assert_file_content "tmux: the ownership marker uses the tag without metadata" \
+    'version=9.7-3' "$_tmux_managed/.shdeps-tmux-build"
+  if exists tmux; then
+    _pass "tmux: a build reporting the full locked version is current"
+  else
+    _fail "tmux: a build reporting the full locked version is current"
+  fi
 
   printf '%s\n' '#!/usr/bin/env bash' 'printf "tmux 3.5a\n"' \
     >"$_tmux_install/tmux/tmux-builds/tmux"

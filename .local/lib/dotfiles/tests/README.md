@@ -72,9 +72,13 @@ Shdeps. It verifies the installed tmux and the version reported by a
 fresh private server. The profile fixtures use the shared `tmux-pinned`
 CI prerequisite because they run with dependency installation disabled.
 The main suite checks that its Shdeps install and that prerequisite
-select the same release and executable bytes. The hook reads
+select the same release, executable bytes, and reported version. The hook reads
 `.config/shdeps/hooks.d/tmux-build.lock` from the checkout during normal
-deployment. Follow the [managed tmux update procedure](https://github.com/cgraf78/actions/blob/main/docs/workflow-api.md#updating-the-managed-tmux-build).
+deployment. `TMUX_BUILD_VERSION` names the archive and `TMUX_BUILD_RELEASE`
+selects its GitHub release. `TMUX_BUILD_REPORTED_VERSION` is the full version
+expected from `tmux -V` and the server's `#{version}` format. Locks with no
+reported version field use the upstream version for that check.
+Follow the [managed tmux update procedure](https://github.com/cgraf78/actions/blob/main/docs/workflow-api.md#updating-the-managed-tmux-build).
 `consumer-ci/sync.sh` updates the generated lock and shared Actions SHA
 together. The Actions sync job compares the full generated lock.
 `with-relay-deps` exports
