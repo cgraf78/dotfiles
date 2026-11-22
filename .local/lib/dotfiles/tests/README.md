@@ -66,15 +66,24 @@ as an explicit value wherever a single-shot resolution is acceptable:
     .local/lib/dotfiles/tests/profile-fixture-integration footprint
 ```
 
-On the conventional platform legs, `with-relay-deps` first installs the
-base manifest's `cgraf78/termnav` and `cgraf78/tmux-tools` declarations
-through the candidate home's Shdeps, then exports
+On the conventional platform legs, `with-relay-deps` installs the base
+manifest's tmux, Termnav, and tmux-tools through the candidate home's
+Shdeps. It verifies the installed tmux and the version reported by a
+fresh private server. The profile fixtures use the shared `tmux-pinned`
+CI prerequisite because they run with dependency installation disabled.
+The main suite checks that its Shdeps install and that prerequisite
+select the same release and executable bytes. The hook reads
+`.config/shdeps/hooks.d/tmux-build.lock` from the checkout during normal
+deployment. Follow the [managed tmux update procedure](https://github.com/cgraf78/actions/blob/main/docs/workflow-api.md#updating-the-managed-tmux-build).
+`consumer-ci/sync.sh` updates the generated lock and shared Actions SHA
+together. The Actions sync job compares the full generated lock.
+`with-relay-deps` exports
 `DOT_TEST_REQUIRE_TERMNAV=1`, so tmux-test's nested relay PTY case, its
 prefix C-a PTY cases and its agent picker option checks fail instead of
 skipping when a provider is missing. Termnav publishes release
-binaries for every platform leg. The Termux leg installs both through `dot
-update` but does not require the relay: Termnav ships no Android x86_64
-binary for the CI emulator.
+binaries for every conventional platform leg. The Termux leg uses the
+native tmux package and logs its installed version. It does not require
+the relay because Termnav ships no Android x86_64 binary for the CI emulator.
 
 The same flag makes agent-rules-test fail instead of skipping when
 tmux-tools' `tmux-pane` is missing: it checks every `tmux-pane` reference in
@@ -83,10 +92,9 @@ the rules and playbooks against `tmux-pane --interface`.
 The tmux suites settle their tmux once, through `_test_require_tmux` in
 `helpers.sh`: without a tmux that meets `tmux.conf`'s `# tmux minimum:`
 floor, their real-tmux coverage reports one skip, and every CI job that
-installs tmux exports `DOT_TEST_REQUIRE_TMUX=1` so that fails instead. When
-shared CI sets `CI_TMUX_FLOOR` it must match the floor, and under
-`CI_TMUX_FLOOR_EXACT=1` (the leg that builds the floor release) tmux must be
-exactly that release.
+installs tmux exports `DOT_TEST_REQUIRE_TMUX=1` so that fails instead.
+An explicit `CI_TMUX_FLOOR` must match the documented floor, and
+`CI_TMUX_FLOOR_EXACT=1` requires the exact floor release.
 
 SSH config fragments that Eternal Terminal reads check themselves with
 `_ssh_et_routes_agree` and `_ssh_config_aliases` in `helpers.sh`. ET 7.0

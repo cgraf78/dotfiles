@@ -22,11 +22,14 @@ awk '$1 == "fd" && $2 == "pkg" && $0 ~ /android:fd/ { found = 1 }
 awk '$1 == "tmux" && $2 == "custom" { found = 1 }
      END { exit !found }' "$deps" || fail 'tmux lacks its base custom declaration'
 
-for command_name in git tmux rg; do
+for command_name in git rg; do
   command -v "$command_name" >/dev/null ||
     fail "base command is unavailable: $command_name"
 done
-tmux -V >/dev/null 2>&1 || fail 'Termux tmux binary does not run'
+tmux_bin=$(command -v tmux) || fail 'Termux tmux is unavailable'
+[[ $tmux_bin -ef $PREFIX/bin/tmux ]] || fail "tmux resolves outside Termux pkg: $tmux_bin"
+tmux_version=$("$tmux_bin" -V) || fail 'Termux tmux binary does not run'
+printf 'android-runtime\ttmux=%s\tversion=%s\n' "$tmux_bin" "$tmux_version"
 rg --version >/dev/null 2>&1 || fail 'Termux ripgrep binary does not run'
 
 # Run the real hook and package bridge with isolated Shdeps state. The CI

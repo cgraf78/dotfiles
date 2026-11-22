@@ -170,8 +170,8 @@ if [[ $needs_capability_runtime -eq 1 ]]; then
   ln -s "$nvim_bin" "$fixture_bin/nvim"
   ln -s "$yq_bin" "$fixture_bin/yq"
 fi
-# The composition check runs the tmux this suite found, which CI may have put
-# outside the system PATH (the tmux-floor profile builds it under RUNNER_TEMP).
+# The composition check runs the tmux this suite found. Shared CI installs
+# the reviewed build outside the system PATH.
 if tmux_bin=$(command -v tmux); then
   ln -s "$tmux_bin" "$fixture_bin/tmux"
 fi

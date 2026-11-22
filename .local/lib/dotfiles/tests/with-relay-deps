@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# with-relay-deps - install the nested-relay providers, then run a command.
+# with-relay-deps - install the tmux stack through Shdeps, then run a command.
 #
 # The nested tmux relay PTY test needs the real Termnav and tmux-tools'
 # term-pane-state, and the prefix C-a tests tmux-tools' agent picker and
-# palette, which CI images do not carry. Install exactly the base manifest's
-# declarations for both repos through the candidate home's Shdeps, as a real
-# host would, then run the command with DOT_TEST_REQUIRE_TERMNAV=1 so those
-# tests fail instead of skipping if any command is ever missing.
+# palette, which CI images do not carry. Install these and tmux from the base
+# manifest through the candidate home's Shdeps, as a real host would. Require
+# the providers so the integration cases fail if any command is missing.
 #
 # Run inside run-ci-candidate-home: it owns the disposable Shdeps runtime and
 # the SHDEPS_INSTALL_DIR/SHDEPS_BIN_DIR that lead its PATH.
@@ -37,26 +36,70 @@ shdeps_bin=$(command -v shdeps) || fail 'Shdeps is unavailable'
 root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 manifest=$root/.config/shdeps/10-deps.conf
 conf=$(mktemp -d "${TMPDIR:-/tmp}/with-relay-deps.XXXXXXXX")
-trap 'rm -rf -- "$conf"' EXIT
+socket=
+cleanup() {
+  if [[ -n $socket ]]; then
+    "$tmux_bin" -L "$socket" kill-server >/dev/null 2>&1 || true
+  fi
+  rm -rf -- "$conf"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Copy the declarations verbatim, so CI installs what the fleet installs.
-awk '$1 == "cgraf78/termnav" || $1 == "cgraf78/tmux-tools"' "$manifest" \
+awk '$1 == "tmux" || $1 == "cgraf78/termnav" || $1 == "cgraf78/tmux-tools"' "$manifest" \
   >"$conf/10-relay.conf"
-[[ $(wc -l <"$conf/10-relay.conf") -eq 2 ]] ||
-  fail "expected the Termnav and tmux-tools declarations in $manifest"
+[[ $(wc -l <"$conf/10-relay.conf") -eq 3 ]] ||
+  fail "expected the tmux, Termnav, and tmux-tools declarations in $manifest"
+# The narrowed manifest has its own hook lookup directory. Use the exact
+# candidate hook so the regular release verification and install path run.
+mkdir "$conf/hooks.d"
+ln -s "$root/.config/shdeps/hooks.d/tmux.sh" "$conf/hooks.d/tmux.sh"
+ln -s "$root/.config/shdeps/hooks.d/tmux-build.lock" "$conf/hooks.d/tmux-build.lock"
 "$shdeps_bin" -c "$conf" update || fail 'Shdeps could not install the providers'
 
-for command_name in termnav term-pane-state tmux-agent-picker \
+for command_name in tmux termnav term-pane-state tmux-agent-picker \
   tmux-command-palette tmux-pane; do
   resolved=$(command -v "$command_name") ||
     fail "$command_name is not on PATH after the install"
   [[ $resolved == "$SHDEPS_BIN_DIR/$command_name" ]] ||
     fail "$command_name resolved outside the install: $resolved"
 done
+"$shdeps_bin" -c "$conf" check tmux >/dev/null || fail 'Shdeps did not install its pinned tmux'
+tmux_bin=$SHDEPS_BIN_DIR/tmux
+client_version=$("$tmux_bin" -V) || fail 'the Shdeps tmux client does not run'
+# A new client can talk to an old server. Verify the one this binary starts
+# without loading any config or relying on the default user's server.
+socket=dotfiles-shdeps-${conf##*.}
+"$tmux_bin" -L "$socket" -f /dev/null new-session -d 'exec cat' ||
+  fail 'the Shdeps tmux server does not start'
+server_version=$("$tmux_bin" -L "$socket" display-message -p '#{version}') ||
+  fail 'the Shdeps tmux server did not report a version'
+[[ $client_version == "tmux $server_version" ]] ||
+  fail "the Shdeps tmux client reported $client_version but its server reported $server_version"
+
+# The profile fixtures use the shared Actions install. Check both the
+# downstream release and the binary, since rebuilds can share a version.
+if [[ -n ${CI_TMUX_PINNED_RELEASE:-} ]]; then
+  tmux_target=$(readlink "$tmux_bin") || fail 'Shdeps did not publish its tmux link'
+  build_record=${tmux_target%/*}/.shdeps-tmux-build
+  build_release=$(<"$build_record")
+  # Python is already required, while some minimal runners omit diffutils.
+  if [[ $build_release != "version=${CI_TMUX_PINNED_RELEASE#v}" ||
+    $server_version != "$CI_TMUX_PINNED_VERSION" ]] ||
+    ! python3 -c 'from pathlib import Path; import sys
+sys.exit(Path(sys.argv[1]).read_bytes() != Path(sys.argv[2]).read_bytes())
+' "$tmux_bin" "$CI_TMUX_PINNED_BIN"; then
+    fail "Shdeps tmux ${build_release#version=} (server $server_version) and shared CI $CI_TMUX_PINNED_RELEASE (expected server $CI_TMUX_PINNED_VERSION) must match in release and binary. Refresh the Shdeps lock with consumer-ci/sync.sh from the intended Actions checkout."
+  fi
+fi
+printf 'relay-deps\ttmux=%s\tserver=%s\n' "$client_version" "$server_version"
 termnav --version >/dev/null || fail 'the installed Termnav does not run'
 printf 'relay-deps\ttermnav=%s\n' "$(termnav --version)"
 
-rm -rf -- "$conf"
-trap - EXIT
+cleanup
+trap - EXIT HUP INT TERM
 export DOT_TEST_REQUIRE_TERMNAV=1
 exec "$@"

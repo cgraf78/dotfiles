@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # Install the base-owned tmux version from the reviewed tmux-builds archives.
 
-_TMUX_VERSION=3.8
-# The archive revision tracks rebuilds that report the same upstream version.
-_TMUX_RELEASE=${_TMUX_VERSION}-1
+# The checkout includes a generated copy of the shared CI pin, so normal
+# deployment keeps its reviewed release even when the Actions repo advances.
+_tmux_load_pin() {
+  local lock=${BASH_SOURCE[0]%/*}/tmux-build.lock
+  TMUX_BUILD_VERSION='' TMUX_BUILD_RELEASE=''
+  TMUX_BUILD_LINUX_X86_64='' TMUX_BUILD_LINUX_ARM64=''
+  TMUX_BUILD_MACOS_X86_64='' TMUX_BUILD_MACOS_ARM64=''
+  [[ -f $lock && -r $lock ]] || return 1
+  # shellcheck source=/dev/null
+  . "$lock" || return 1
+  [[ $TMUX_BUILD_VERSION =~ ^[0-9]+(\.[0-9]+)+[a-z]?$ &&
+    ${TMUX_BUILD_RELEASE#v"$TMUX_BUILD_VERSION"-} =~ ^[0-9]+$ ]]
+}
 
 _tmux_root() {
   # ~/.local/share/tmux is application state (including tmux-resurrect data),
@@ -21,28 +31,39 @@ _tmux_public() {
 
 _tmux_asset() {
   local platform arch asset checksum
+  _tmux_load_pin || {
+    shdeps_warn '  warning: missing or invalid tmux-build.lock'
+    return 1
+  }
   platform=$(shdeps_platform) || return 1
   arch=$(uname -m) || return 1
   case $platform:$arch in
     linux:x86_64 | linux:amd64 | wsl:x86_64 | wsl:amd64)
       asset=linux-x86_64
-      checksum=ab4827c7f5990f43227911ee7fdc9848244fdfe46dee69a4fc9bfb0bd1357db7
+      checksum=$TMUX_BUILD_LINUX_X86_64
       ;;
     linux:aarch64 | linux:arm64 | wsl:aarch64 | wsl:arm64)
       asset=linux-arm64
-      checksum=4c33b91eb40d9ebb041ab12b31b7c9f8269dff0d4fee7596185415d40a907b8b
+      checksum=$TMUX_BUILD_LINUX_ARM64
       ;;
     macos:x86_64 | macos:amd64)
       asset=macos-x86_64
-      checksum=f1c42e0458ddf33db86d9eb535b9acaa39669ac7d25b0c331d8e9a5009ab91ad
+      checksum=$TMUX_BUILD_MACOS_X86_64
       ;;
     macos:aarch64 | macos:arm64)
       asset=macos-arm64
-      checksum=3381c230bfeb1a04d8771ff323db06cae71c9c7a32155092c1750a92e3e1b228
+      checksum=$TMUX_BUILD_MACOS_ARM64
       ;;
-    *) return 1 ;;
+    *)
+      shdeps_warn '  warning: no pinned tmux build for this platform'
+      return 1
+      ;;
   esac
-  REPLY_URL="https://github.com/cgraf78/tmux-builds/releases/download/v$_TMUX_RELEASE/tmux-$_TMUX_VERSION-$asset.tar.gz"
+  [[ $checksum =~ ^[0-9a-f]{64}$ ]] || {
+    shdeps_warn '  warning: invalid tmux archive checksum in tmux-build.lock'
+    return 1
+  }
+  REPLY_URL="https://github.com/cgraf78/tmux-builds/releases/download/$TMUX_BUILD_RELEASE/tmux-$TMUX_BUILD_VERSION-$asset.tar.gz"
   REPLY_SHA256=$checksum
 }
 
@@ -76,9 +97,10 @@ _tmux_root_current() {
   root=$(_tmux_root)
   marker=$root/.shdeps-tmux-build
   _tmux_root_owned || return 1
-  [[ $(<"$marker") == "version=$_TMUX_RELEASE" ]] || return 1
+  _tmux_load_pin || return 1
+  [[ $(<"$marker") == "version=${TMUX_BUILD_RELEASE#v}" ]] || return 1
   [[ -x $root/tmux && ! -d $root/tmux ]] || return 1
-  "$root/tmux" -V 2>/dev/null | grep -Fx "tmux $_TMUX_VERSION" >/dev/null
+  "$root/tmux" -V 2>/dev/null | grep -Fx "tmux $TMUX_BUILD_VERSION" >/dev/null
 }
 
 _tmux_public_target() {
@@ -227,10 +249,7 @@ install() {
   fi
 
   local root install_base stage archive candidate backup='' checksum
-  _tmux_asset || {
-    shdeps_warn '  warning: no pinned tmux build for this platform'
-    return 1
-  }
+  _tmux_asset || return 1
   root=$(_tmux_root)
   install_base=${root%/*}
   mkdir -p "$install_base" || return 1
@@ -264,7 +283,8 @@ install() {
     return 1
   fi
   rm -f -- "$archive"
-  printf 'version=%s\n' "$_TMUX_RELEASE" >"$candidate/.shdeps-tmux-build" || {
+  # Preserve the marker format across upgrades from the previous hook.
+  printf 'version=%s\n' "${TMUX_BUILD_RELEASE#v}" >"$candidate/.shdeps-tmux-build" || {
     rm -rf -- "$stage"
     return 1
   }
