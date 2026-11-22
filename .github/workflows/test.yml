@@ -13,21 +13,25 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@cd44eb081dd9c3093e8d8026488423243b191240
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@9010f3bb0aeb33740332bc230160a42d02dbc810
     with:
       # This repository owns only base and profile/control-plane tests. The
       # public capability repositories run their own focused suites, so this
       # job installs only the prerequisites for the base/control-plane client.
       setup: none
-      profiles: base,jq,python,zsh,lua,tmux-floor,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck
+      # The profile fixtures do not run Shdeps; give them the same build
+      # that the main suite installs through Shdeps in the candidate home.
+      profiles: base,jq,python,zsh,lua,tmux-pinned,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck
       matrix-set: full
       shellcheck-exclude-codes: SC1091
       shellcheck-inventory-path: .github/shellcheck-files.txt
       test-command: |-
         set -euo pipefail
+        : "${CI_TMUX_PINNED_RELEASE:?missing tmux-pinned release}" \
+          "${CI_TMUX_PINNED_VERSION:?missing tmux-pinned version}" \
+          "${CI_TMUX_PINNED_BIN:?missing tmux-pinned executable}"
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
-        # Every leg installs a supported tmux, so a suite that would skip
-        # its real-tmux coverage fails instead.
+        # A suite that would skip its real-tmux coverage fails instead.
         export DOT_TEST_REQUIRE_TMUX=1
         .local/lib/dotfiles/tests/checkout-ci-candidate
         # Post-cutover the engine ships only as a native binary and the matrix
@@ -43,10 +47,9 @@ jobs:
         # resolution failure and silently fall back to the git path below.
         dot_release_tag="$(_dot_release_latest_tag cgraf78/dot)"
         export DOT_STACK_DOT_RELEASE_TAG=$dot_release_tag
-        # with-relay-deps installs the base manifest's Termnav (released
-        # for every platform leg here) and tmux-tools, then requires
-        # tmux-test's nested relay and prefix C-a PTY cases to run instead
-        # of skipping.
+        # with-relay-deps installs the base manifest's tmux, Termnav, and
+        # tmux-tools through Shdeps. This exercises the installed stack in
+        # tmux-test's nested relay and prefix C-a PTY cases.
         .local/lib/dotfiles/tests/stack-dot-runtime control-plane-run-ci -- \
           .local/lib/dotfiles/tests/run-ci-candidate-home \
             .local/lib/dotfiles/tests/with-relay-deps \
@@ -98,7 +101,7 @@ jobs:
       # `dot update` installs the declared tools through Termux pkg. Python is
       # a suite runtime no dependency declares, so it is a prerequisite here
       # as on Linux.
-      termux-profiles: base,python,tmux-floor,ripgrep,hostname
+      termux-profiles: base,python,tmux,ripgrep,hostname
 
   actions-sync:
     name: cgraf78/actions sync
@@ -117,7 +120,7 @@ jobs:
           persist-credentials: false
 
       # GitHub resolves literal `uses:` refs before repository files are read.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@cd44eb081dd9c3093e8d8026488423243b191240
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@9010f3bb0aeb33740332bc230160a42d02dbc810
 
   installed-profiles:
     name: Installed profiles
@@ -143,10 +146,10 @@ jobs:
           persist-credentials: false
 
       - name: Install bootstrap prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@cd44eb081dd9c3093e8d8026488423243b191240
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@9010f3bb0aeb33740332bc230160a42d02dbc810
         with:
           matrix-name: Ubuntu
-          profiles: base,jq,python,zsh,lua,tmux-floor,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname
+          profiles: base,jq,python,zsh,lua,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname
           setup: none
 
       - name: Bootstrap and diagnose the configured default profile
@@ -225,6 +228,9 @@ jobs:
           test "$public_dot" -ef "$HOME/.local/share/cgraf78/dot/dot"
           printf 'doctor-runtime\tdot=%s\tversion=%s\n' \
             "$public_dot" "$(dot --version)"
+          public_tmux=$(command -v tmux)
+          test "$public_tmux" = "$HOME/.local/bin/tmux"
+          "$HOME/.local/bin/shdeps" check tmux
           dot doctor
           test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
           BASH

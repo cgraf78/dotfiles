@@ -499,7 +499,11 @@ for line in sys.stdin:
 ')"
 fi
 # The tmux shdeps installs meets the floor.
-shdeps_tmux=$(sed -n 's/^_TMUX_VERSION=//p' "$source_home/.config/shdeps/hooks.d/tmux.sh")
+shdeps_tmux=$(
+  # shellcheck source=/dev/null
+  . "$source_home/.config/shdeps/hooks.d/tmux-build.lock" &&
+    printf '%s\n' "$TMUX_BUILD_VERSION"
+)
 if [[ -n $shdeps_tmux ]] && _tmux_supported "$shdeps_tmux"; then
   _pass "tmux: shdeps installs tmux $shdeps_tmux, which meets the floor"
 else
