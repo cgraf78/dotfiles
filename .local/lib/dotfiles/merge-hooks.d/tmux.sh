@@ -4,18 +4,12 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 # shellcheck shell=bash
 # Reload the running default tmux server after dot has updated its config.
 #
-# `tmux source-file` without a socket target deliberately follows tmux's normal
-# client contract: it updates the user's default server and does not create one
-# just because a scheduled `dot update` ran.
+# Explicitly select the default socket even from a pane on a named server.
+# A scheduled `dot update` never starts a server.
 #
-# The ~500ms reload is skipped when the server already runs this exact
-# config: the stamp records the config path plus checksums of the config
-# and every conf.d include, and a reload happens unless all inputs are
-# older than the stamp with matching checksums. Only a successful
-# reload writes the stamp, so a failed reload, a config change, a new
-# include, or a missing server all behave exactly as before. Runtime
-# option drift is no longer reset by unrelated updates: only a config
-# change reloads.
+# The stamp ties the config path and checksums to the server instance
+# that loaded them. A replacement server must reload even if the config
+# is unchanged. Unrelated updates leave runtime options alone.
 
 _tmux_hook_stamp_file() {
   local base=${XDG_CACHE_HOME:-}
@@ -55,8 +49,9 @@ _tmux_hook_inputs_older() {
 
 merge() {
   _dot_tool_present tmux || return 0
-  local config="$HOME/.config/tmux/tmux.conf" tmux_command
+  local config="$HOME/.config/tmux/tmux.conf"
   local conf_dir="$HOME/.config/tmux/conf.d" stamp fp fresh stored tmp
+  local server_format='#{socket_path}:#{pid}:#{start_time}' server loaded_server
 
   [[ -r "$config" ]] || return 0
   # Ask for a server before applying the account guard, so the guard warns
@@ -64,37 +59,41 @@ merge() {
   # `HOME=... dot update`) usually has no server, and then there is nothing
   # to protect. `has-session` is a client query: it never starts a server,
   # reads no config, and creates nothing beyond tmux's own per-uid socket
-  # directory, which it picks from $TMUX/TMUX_TMPDIR and the uid rather than
-  # HOME. Test mode skips this probe because it must
-  # never reach a real server; the guard below supplies its test double.
+  # directory. With an explicit socket name it honors TMUX_TMPDIR and the uid
+  # instead of inheriting the socket in TMUX. Test mode skips this probe
+  # because the account guard must supply the test double first.
   if [[ "${DOT_TEST:-0}" != "1" ]] &&
-    ! command tmux has-session >/dev/null 2>&1; then
+    ! command tmux -N -L default has-session >/dev/null 2>&1; then
     return 0
   fi
   _dot_account_scoped_command \
     "tmux merge" tmux "${DOT_TEST_TMUX:-}" || return 0
-  tmux_command="$REPLY"
-  "$tmux_command" has-session >/dev/null 2>&1 || return 0
+  local -a tmux_default=("$REPLY" -N -L default)
+  server=$(
+    "${tmux_default[@]}" has-session \; display-message -p "$server_format" 2>/dev/null
+  ) || return 0
 
   stamp=$(_tmux_hook_stamp_file)
   fp=$(_tmux_hook_fingerprint "$config" "$conf_dir") 2>/dev/null || fp=
-  if [[ -f $stamp && -r $stamp && -n $fp ]] &&
+  if [[ -f $stamp && -r $stamp && -n $server && -n $fp ]] &&
     _tmux_hook_inputs_older "$stamp" "$config" "$conf_dir" &&
     stored=$(cat -- "$stamp" 2>/dev/null) &&
-    [[ $fp == "$stored" ]]; then
+    [[ $stored == "$server"$'\n'"$fp" ]]; then
     return 0
   fi
 
   dot_hook_log "  tmux"
-  "$tmux_command" source-file "$config" || return $?
-  # The stamp records only bytes proven stable across the reload: a
-  # config change racing the reload skips the write so the next run
-  # heals instead of trusting possibly torn server state.
+  "${tmux_default[@]}" source-file "$config" || return $?
+  # A config edit or server restart racing the reload invalidates the proof.
+  # Leave the previous stamp in place so the next update tries again.
   fresh=$(_tmux_hook_fingerprint "$config" "$conf_dir") 2>/dev/null || return 0
   [[ $fresh == "$fp" ]] || return 0
+  loaded_server=$("${tmux_default[@]}" display-message -p "$server_format" 2>/dev/null) ||
+    return 0
+  [[ -n $server && $loaded_server == "$server" ]] || return 0
   mkdir -p "${stamp%/*}" 2>/dev/null || return 0
   if tmp=$(mktemp "${stamp}.tmp.XXXXXX" 2>/dev/null) &&
-    printf '%s\n' "$fresh" >"$tmp" 2>/dev/null &&
+    printf '%s\n' "$server" "$fresh" >"$tmp" 2>/dev/null &&
     mv -f "$tmp" "$stamp" 2>/dev/null; then
     :
   else
