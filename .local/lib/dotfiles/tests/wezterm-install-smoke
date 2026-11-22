@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Exercise the actual WezTerm package transaction on a disposable CI runner.
+
+set -euo pipefail
+
+[[ ${GITHUB_ACTIONS:-} == true && -n ${SHDEPS_INSTALL_DIR:-} ]] || {
+  printf '%s\n' 'wezterm-install-smoke: use the disposable Ubuntu candidate home' >&2
+  exit 2
+}
+if [[ -e /usr/bin/wezterm || -e /usr/bin/wezterm-gui ]]; then
+  printf '%s\n' 'wezterm-install-smoke: the runner must start without WezTerm' >&2
+  exit 1
+fi
+
+root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+conf=$(mktemp -d "${TMPDIR:-/tmp}/wezterm-install-smoke.XXXXXXXX")
+trap 'rm -rf -- "$conf"' EXIT
+
+hooks=$root/.config/shdeps/hooks.d
+mkdir "$conf/hooks.d"
+awk '$1 == "wezterm" { print }' "$root/.config/shdeps/10-deps.conf" >"$conf/10-wezterm.conf"
+[[ -s $conf/10-wezterm.conf ]]
+ln -s "$hooks/wezterm.sh" "$conf/hooks.d/wezterm.sh"
+ln -s "$hooks/wezterm-build.lock" "$conf/hooks.d/wezterm-build.lock"
+expected=$(awk '$1 == "ubuntu24.04-x86_64" { print $2 }' "$hooks/wezterm-build.lock")
+[[ -n $expected ]]
+
+# CI normally skips visual apps. Select the desktop path only for this
+# package test. Neither version checks nor show-keys connect to a display.
+install=(env -u CI DISPLAY=:99 shdeps --config "$conf")
+"${install[@]}" --force update
+"${install[@]}" check wezterm
+[[ $(/usr/bin/wezterm --version) == "wezterm $expected" ]]
+/usr/bin/wezterm-gui --skip-config show-keys >/dev/null
+
+# Another forced update must find the healthy install without downloading
+# again. The stub fails if the hook attempts to fetch a package.
+mkdir "$conf/no-download"
+printf '#!/bin/sh\nexit 1\n' >"$conf/no-download/curl"
+chmod +x "$conf/no-download/curl"
+PATH="$conf/no-download:$PATH" "${install[@]}" --force update
