@@ -762,6 +762,40 @@ TMUX
     "$tmux_skip_reload" "$(cat "$tmux_skip_home/log7.txt")"
   _assert_eq "tmux merge: missing cksum writes no stamp" \
     "$tmux_stamp_before" "$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")"
+
+  if _test_require_tmux "tmux merge: private server test"; then
+    (
+      set -e
+      tmux_real_base=$(_tmux_socket)
+      export TMUX_TMPDIR=${tmux_real_base%/*}
+      export HOME="$TMUX_TMPDIR/home" XDG_CACHE_HOME="$TMUX_TMPDIR/cache"
+      export SHELL
+      SHELL=$(command -v sh)
+      unset TMUX TMUX_PANE
+      export DOT_TEST=1 DOT_TEST_TMUX
+      DOT_TEST_TMUX=$(command -v tmux)
+      trap '
+        tmux -N -L named kill-server >/dev/null 2>&1 || :
+        tmux -N -L default kill-server >/dev/null 2>&1 || :
+        _cleanup_dir "$TMUX_TMPDIR"
+      ' EXIT
+      mkdir -p "$HOME/.config/tmux"
+      printf '%s\n' 'set-option -g @merge_probe loaded' >"$HOME/.config/tmux/tmux.conf"
+      tmux -L named -f /dev/null new-session -d -s named 'exec cat'
+      export TMUX
+      TMUX=$(tmux -N -L named display-message -p '#{socket_path},#{pid},0')
+      _run_tmux_merge_for_test
+      test -z "$(tmux -N -L named show-options -gqv @merge_probe)"
+      test ! -e "$XDG_CACHE_HOME/dot/merge-tmux.stamp"
+      if tmux -N -L default has-session >/dev/null 2>&1; then exit 1; fi
+
+      tmux -L default -f /dev/null new-session -d -s default 'exec cat'
+      _run_tmux_merge_for_test
+      test "$(tmux -N -L default show-options -gqv @merge_probe)" = loaded
+      test -z "$(tmux -N -L named show-options -gqv @merge_probe)"
+    )
+    _assert_exit "tmux merge: a real named server cannot steal the default reload" 0 "$?"
+  fi
   unset -f _run_tmux_merge_for_test merge 2>/dev/null
 
   echo "=== Karabiner source config ==="
