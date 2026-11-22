@@ -251,28 +251,70 @@ done
 
 windows_home=$fixture_home/windows-home
 wezterm_worker_bin=$(_tmpdir)
+wezterm_config_dir=$fixture_home/.config/wezterm
+wezterm_provider_dir=$fixture_home/termnav-fixture/lib/termnav/wezterm
+
+_client_wezterm_merge() {
+  CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
+    WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
+    DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
+    _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh" none \
+    "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"
+}
+
 cat >"$wezterm_worker_bin/wezterm" <<'WEZTERM'
 #!/usr/bin/env bash
 exit 0
 WEZTERM
-chmod +x "$wezterm_worker_bin/wezterm"
-mkdir -p "$fixture_home/.config/wezterm" "$fixture_home/.config/terminal" "$windows_home"
-printf 'return {}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
+cat >"$wezterm_worker_bin/shdeps" <<'SHDEPS'
+#!/usr/bin/env bash
+[[ $1 == dep-file && $2 == cgraf78/termnav && -f $HOME/termnav-fixture/$3 ]] || exit 1
+printf '%s\n' "$HOME/termnav-fixture/$3"
+SHDEPS
+cat >"$wezterm_worker_bin/cp" <<'CP'
+#!/usr/bin/env bash
+[[ $1 != "${WEZTERM_TEST_FAIL_COPY:-}" ]] || exit 1
+exec /bin/cp "$@"
+CP
+cat >"$wezterm_worker_bin/mv" <<'MV'
+#!/usr/bin/env bash
+if [[ ${3:-} == "$DOT_TEST_WINDOWS_HOME/.wezterm.lua" ]]; then
+  printf '%s\n' 'published' >>"$DOT_TEST_WINDOWS_HOME/publications"
+  for companion in attention.lua link-routes.lua public-link-rules.lua termnav-module.lua \
+    termnav-link-routes.lua termnav-public-link-rules.lua hyperlink-rules.d/test.lua; do
+    if [[ ! -f $DOT_TEST_WINDOWS_HOME/$companion ]]; then
+      printf '%s\n' "$companion was missing at publication" >>"$DOT_TEST_WINDOWS_HOME/order"
+    fi
+  done
+fi
+exec /bin/mv "$@"
+MV
+chmod +x "$wezterm_worker_bin/"*
+mkdir -p "$wezterm_config_dir/hyperlink-rules.d" "$fixture_home/.config/terminal" "$windows_home" "$wezterm_provider_dir"
+for companion in attention.lua link-routes.lua public-link-rules.lua termnav-module.lua; do
+  printf 'return {fixture=true}\n' >"$wezterm_config_dir/$companion"
+done
+printf 'return {routes=true}\n' >"$wezterm_provider_dir/link-routes.lua"
+printf 'return {rules=true}\n' >"$wezterm_provider_dir/public-link-rules.lua"
+printf 'return {extension=true}\n' >"$wezterm_config_dir/hyperlink-rules.d/test.lua"
+printf 'return {}\n' >"$wezterm_config_dir/wezterm.lua"
 cp "$source_home/.config/terminal/settings.json" "$fixture_home/.config/terminal/settings.json"
 printf 'legacy companion\n' >"$windows_home/appearance.json"
 mkdir -p "$windows_home/.config/terminal"
 printf '\342\240\213\n\342\240\231\n' >"$windows_home/.config/terminal/working-spinner.frames"
-if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
-  WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
-  DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
-  _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh" none \
-  "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}"; then
+if _client_wezterm_merge; then
   _pass 'client WSL worker runs WezTerm hook through public platform API'
 else
   _fail 'client WSL worker runs WezTerm hook through public platform API'
 fi
 _assert_file_content 'client WSL worker copies WezTerm config through public platform API' \
   'return {}' "$windows_home/.wezterm.lua"
+_assert_file_missing 'client WSL worker publishes all required Lua companions before the main config' \
+  "$windows_home/order"
+_assert_file_content 'client WSL worker copies the Termnav router' \
+  'return {routes=true}' "$windows_home/termnav-link-routes.lua"
+_assert_file_content 'client WSL worker copies the Termnav hyperlink rules' \
+  'return {rules=true}' "$windows_home/termnav-public-link-rules.lua"
 
 _assert_file_missing 'client WSL worker retires legacy appearance copy' \
   "$windows_home/appearance.json"
@@ -286,12 +328,8 @@ _assert_file_missing 'client WSL worker retires the working-spinner frames copy'
 cp "$windows_home/.wezterm.lua" "$windows_home/main.before"
 cp "$windows_home/.config/terminal/settings.json" "$windows_home/appearance.before"
 mv "$fixture_home/.config/terminal/settings.json" "$fixture_home/appearance.parked"
-printf 'return {new_config=true}\n' >"$fixture_home/.config/wezterm/wezterm.lua"
-if CLIENT_WORKER_PATH="$wezterm_worker_bin:$DOT_TEST_SYSTEM_PATH" \
-  WSL_DISTRO_NAME=Ubuntu DOT_TEST_WINDOWS_HOME=$windows_home \
-  DOT_TEST_WSL_PAIRED_ACCOUNT=1 DOT_QUIET=1 \
-  _client_worker_run merge "$client_root/merge-hooks.d/wezterm.sh" none \
-  "${client_active_overlay_records[@]+"${client_active_overlay_records[@]}"}" 2>/dev/null; then
+printf 'return {new_config=true}\n' >"$wezterm_config_dir/wezterm.lua"
+if _client_wezterm_merge 2>/dev/null; then
   _fail 'client WSL worker reports failed appearance copy'
 else
   _pass 'client WSL worker reports failed appearance copy'
@@ -301,6 +339,87 @@ _assert_file_content 'failed appearance copy preserves main config' \
 _assert_file_content 'failed appearance copy preserves published appearance' \
   "$(cat "$windows_home/appearance.before")" "$windows_home/.config/terminal/settings.json"
 mv "$fixture_home/appearance.parked" "$fixture_home/.config/terminal/settings.json"
+
+mv "$wezterm_provider_dir/public-link-rules.lua" "$fixture_home/rules.parked"
+if _client_wezterm_merge 2>/dev/null; then
+  _fail 'client WSL worker reports missing Termnav module'
+else
+  _pass 'client WSL worker reports missing Termnav module'
+fi
+_assert_file_content 'missing Termnav module preserves main config' \
+  'return {}' "$windows_home/.wezterm.lua"
+mv "$fixture_home/rules.parked" "$wezterm_provider_dir/public-link-rules.lua"
+
+mv "$wezterm_config_dir/attention.lua" "$fixture_home/attention.parked"
+if _client_wezterm_merge 2>/dev/null; then
+  _fail 'client WSL worker reports missing local companion'
+else
+  _pass 'client WSL worker reports missing local companion'
+fi
+_assert_file_content 'missing local companion preserves main config' \
+  'return {}' "$windows_home/.wezterm.lua"
+mv "$fixture_home/attention.parked" "$wezterm_config_dir/attention.lua"
+
+printf 'return {updated=true}\n' >"$wezterm_config_dir/attention.lua"
+if WEZTERM_TEST_FAIL_COPY="$wezterm_config_dir/attention.lua" _client_wezterm_merge 2>/dev/null; then
+  _fail 'client WSL worker reports a Lua companion copy failure'
+else
+  _pass 'client WSL worker reports a Lua companion copy failure'
+fi
+_assert_file_content 'failed Lua companion copy preserves main config' \
+  'return {}' "$windows_home/.wezterm.lua"
+_assert_file_content 'failed Lua companion copy preserves the published companion' \
+  'return {fixture=true}' "$windows_home/attention.lua"
+
+printf 'return {updated=true}\n' >"$wezterm_config_dir/hyperlink-rules.d/test.lua"
+if WEZTERM_TEST_FAIL_COPY="$wezterm_config_dir/hyperlink-rules.d/test.lua" _client_wezterm_merge 2>/dev/null; then
+  _fail 'client WSL worker reports a hyperlink extension copy failure'
+else
+  _pass 'client WSL worker reports a hyperlink extension copy failure'
+fi
+_assert_file_content 'failed extension copy preserves main config' \
+  'return {}' "$windows_home/.wezterm.lua"
+_assert_file_content 'failed extension copy preserves the published extension' \
+  'return {extension=true}' "$windows_home/hyperlink-rules.d/test.lua"
+if compgen -G "$windows_home/hyperlink-rules.d/.dotfiles-managed.tmp.*" >/dev/null; then
+  _fail 'failed extension copy leaves no staged ownership manifest'
+else
+  _pass 'failed extension copy leaves no staged ownership manifest'
+fi
+
+wezterm_external_dir=$(_tmpdir)
+for relative_name in attention.lua hyperlink-rules.d/.dotfiles-managed; do
+  blocked_dest="$windows_home/$relative_name"
+  mv "$blocked_dest" "$fixture_home/destination.parked"
+  ln -s "$wezterm_external_dir" "$blocked_dest"
+  if _client_wezterm_merge 2>/dev/null; then
+    _fail "client WSL worker rejects directory destination $relative_name"
+  else
+    _pass "client WSL worker rejects directory destination $relative_name"
+  fi
+  _assert_file_content "directory destination $relative_name preserves main config" \
+    'return {}' "$windows_home/.wezterm.lua"
+  _assert_eq "directory destination $relative_name remains untouched" \
+    "$wezterm_external_dir" "$(readlink "$blocked_dest")"
+  _assert_eq "directory destination $relative_name receives no staged files" \
+    '' "$(ls -A "$wezterm_external_dir")"
+  rm -f "$blocked_dest"
+  mv "$fixture_home/destination.parked" "$blocked_dest"
+done
+
+if _client_wezterm_merge && _client_wezterm_merge; then
+  _pass 'client WSL worker retries and can rerun the completed update'
+else
+  _fail 'client WSL worker retries and can rerun the completed update'
+fi
+_assert_file_content 'successful retry publishes the new main config' \
+  'return {new_config=true}' "$windows_home/.wezterm.lua"
+_assert_file_content 'successful retry publishes the updated companion' \
+  'return {updated=true}' "$windows_home/attention.lua"
+_assert_file_content 'successful retry publishes the updated hyperlink extension' \
+  'return {updated=true}' "$windows_home/hyperlink-rules.d/test.lua"
+_assert_file_content 'completed WSL update does not republish an unchanged main config' \
+  $'published\npublished' "$windows_home/publications"
 
 for extension in "$client_root/doctor.d"/[0-9]*.sh; do
   [[ ! -L $extension ]] || continue

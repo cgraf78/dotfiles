@@ -2,20 +2,24 @@
 
 ## Installed build
 
-The [Shdeps lockfile](../shdeps/hooks.d/wezterm-build.lock) selects the exact
-desktop build per platform. `dot update` checks the executable version and
-installs the selected build if it differs. Shdeps downloads the original
-packages from a versioned [WezTerm snapshot](https://github.com/cgraf78/wezterm-builds)
-and verifies their SHA-256 before installation. Upstream nightly rotation
-does not change these snapshots. To upgrade or roll back, use the
-[snapshot repo's lock generator](https://github.com/cgraf78/wezterm-builds#move-or-roll-back-the-dotfiles-pin)
-for the selected release and review the generated change before landing it.
+The [Shdeps lockfile](../shdeps/hooks.d/wezterm-build.lock) is synchronized
+from the shared Actions pin used by `wezterm-pinned`. It selects the exact
+desktop build per platform. `dot update` checks for the selected build.
+Shdeps downloads the original packages from a versioned WezTerm snapshot
+and verifies their SHA-256 before installation. A release can combine
+different upstream builds across platforms. [Published snapshots](https://github.com/cgraf78/wezterm-builds/releases)
+
+To upgrade or roll back, select a published snapshot in the shared Actions
+lock and run the usual consumer sync. Use an earlier published snapshot for
+rollback. [Shared pin procedure](https://github.com/cgraf78/actions/blob/main/docs/workflow-api.md#updating-the-managed-wezterm-build)
 
 On macOS, launch `~/Applications/WezTerm.app` to use the managed build. The
 installer puts a `wezterm` launcher in the Shdeps bin directory and keeps a system
 or Homebrew app at `/Applications/WezTerm.app` available during migration.
 If the Dock points to that app, replace its shortcut with the one in your
 home Applications folder. Use `wezterm --version` to check the CLI build.
+Cmd+F starts smart-case search on builds that support it. Older builds
+use case-sensitive search.
 
 On Linux, the hook selects by distro, release, and architecture. It uses the
 native package manager, so a system upgrade can change the installed build
@@ -72,10 +76,10 @@ most severe first. Snapshots from publishers that predate `waiting` omit it,
 which reads as 0; a snapshot whose `failed + waiting` exceeds `pending` is
 ignored.
 
-Acknowledgement stays in tmux (see [`../tmux/README.md`](../tmux/README.md)):
+Acknowledgement stays in [tmux](../tmux/README.md).
 WezTerm only renders. Nothing animates. The one-second status callback
 expires snapshots that stop arriving and, only when a tab's dots change,
-toggles an invisible reset in the right status so stable WezTerm rebuilds its
+toggles an invisible reset in the right status so WezTerm rebuilds its
 cached tab titles.
 
 ## Terminal Bell
@@ -285,13 +289,13 @@ an outer tab does not acknowledge hidden inner panes; tmux's existing
 selection/focus policy owns acknowledgement. Pane-global acknowledgement by
 one attached client remains acknowledgement for the other clients too.
 
-The formatter supports the stable 2024 WezTerm build. It must stay
-process-free; the status callback only inspects cached mux data. A local
+The formatter runs without subprocesses and the status callback inspects
+cached mux data. A local
 reception lease hides stale snapshots after a lost publisher, including while
 the terminal is otherwise quiet. Reconnection replays the source state. The
 right-status area is owned by this adapter for transient link errors and
-invisible redraw invalidation on this stable build, which lacks a window
-invalidation API. Compose future right-status content through this module.
+invisible redraw invalidation. Compose future right-status content through
+this module.
 
 Termnav carries nested snapshots through existing parent routes; no SSH
 login is initiated for attention. These are advisory periodically reconciled
@@ -299,9 +303,10 @@ snapshots, not a transaction log or per-client unread counters. The original
 pane marks remain authoritative when transport expires.
 
 The bell callback checks the originating pane's mux window before playing a
-sound, compensating for stable WezTerm's broadcast to unrelated GUI windows.
-The newer terminal checksum-disable setting is absent from this build; the
-configuration does not claim to disable that engine feature.
+sound. The current macOS build routes bells to the originating window, and
+the check also handles panes that close before the callback runs. On builds
+that expose `enable_checksum_rectangular_area`, WezTerm defaults it off.
+Termnav's bracketed-paste mode query uses a separate escape sequence.
 
 ## Shared Appearance
 

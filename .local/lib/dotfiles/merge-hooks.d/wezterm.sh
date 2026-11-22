@@ -8,6 +8,9 @@ dot_hook_source merge-hooks.d/lib/compat.sh || return
 _wezterm_copy() {
   local src="$1" dest="$2" tmp
 
+  # A directory or symlink to one makes mv put the temporary file inside
+  # that directory instead of publishing the requested companion.
+  [[ ! -e "$dest" || -f "$dest" ]] || return 1
   mkdir -p "$(dirname "$dest")" || return 1
   if [[ ! -L "$dest" && -e "$dest" ]] && dot_config_files_equal "$src" "$dest"; then
     return 0
@@ -33,25 +36,26 @@ _wezterm_copy() {
   }
 }
 
-_wezterm_sync_lua_dir() {
+_wezterm_sync_lua_dir() (
   local src_dir="$1" dest_dir="$2"
   local manifest="$dest_dir/.dotfiles-managed"
   local new_manifest
   local src name old_name
 
+  [[ ! -e "$manifest" || -f "$manifest" ]] || return 1
   [[ -d "$src_dir" || -f "$manifest" ]] || return 0
 
-  mkdir -p "$dest_dir"
+  mkdir -p "$dest_dir" || return 1
   dot_sibling_tmp_for "$manifest" || return 1
   new_manifest="$REPLY"
-  : >"$new_manifest"
+  trap 'rm -f "$new_manifest"' EXIT
 
   if [[ -d "$src_dir" ]]; then
     for src in "$src_dir"/*.lua; do
       [[ -f "$src" ]] || continue
       name="${src##*/}"
-      _wezterm_copy "$src" "$dest_dir/$name"
-      printf '%s\n' "$name" >>"$new_manifest"
+      _wezterm_copy "$src" "$dest_dir/$name" || return 1
+      printf '%s\n' "$name" >>"$new_manifest" || return 1
     done
   fi
 
@@ -64,30 +68,29 @@ _wezterm_sync_lua_dir() {
         "" | .* | */*) continue ;;
       esac
       if ! grep -Fxq -- "$old_name" "$new_manifest"; then
-        rm -f "$dest_dir/$old_name"
+        rm -f "$dest_dir/$old_name" || return 1
       fi
     done <"$manifest"
   fi
 
   if [[ -s "$new_manifest" ]]; then
-    mv "$new_manifest" "$manifest" || {
-      rm -f "$new_manifest"
-      return 1
-    }
+    mv "$new_manifest" "$manifest" || return 1
   else
-    rm -f "$manifest" "$new_manifest"
+    rm -f "$manifest" "$new_manifest" || return 1
     rmdir "$dest_dir" 2>/dev/null || true
   fi
-}
+)
 
-_wezterm_copy_shdeps_asset() {
-  local relative_path="$1" dest="$2"
+_wezterm_required_asset() {
+  local relative_path="$1"
   local src
 
-  src=$(dot_shdeps_dep_file cgraf78/termnav "$relative_path" 2>/dev/null || true)
-  [[ -n "$src" ]] || return 0
-
-  _wezterm_copy "$src" "$dest"
+  if ! src=$(dot_shdeps_dep_file cgraf78/termnav "$relative_path" 2>/dev/null) ||
+    [[ ! -f "$src" || ! -r "$src" ]]; then
+    dot_hook_warn "    warning: Windows WezTerm needs Termnav asset $relative_path"
+    return 1
+  fi
+  printf '%s\n' "$src"
 }
 
 merge() {
@@ -100,7 +103,7 @@ merge() {
 
   dot_hook_log "  WezTerm"
 
-  local winhome
+  local winhome module routes rules
   # dot_wsl_writable_windows_home() both asks Windows which profile owns GUI
   # apps (instead of guessing from the Linux username) and refuses accounts
   # other than the one paired with that profile — see its definition. Windows
@@ -110,35 +113,37 @@ merge() {
   dot_wsl_writable_windows_home || return 0
   winhome="$REPLY"
 
-  # Keep the shared settings under the same neutral directory on Windows.
-  # Publish the required declaration before a config that reads it. A
-  # failed dependency copy must leave the previous Windows config usable.
+  # The main config loads these immediately. Check their sources before
+  # publishing any changes, including on a cold WSL install.
+  for module in attention.lua link-routes.lua public-link-rules.lua termnav-module.lua; do
+    if [[ ! -f "$config_dir/$module" || ! -r "$config_dir/$module" ]]; then
+      dot_hook_warn "    warning: Windows WezTerm needs local module $module"
+      return 1
+    fi
+  done
+  routes=$(_wezterm_required_asset lib/termnav/wezterm/link-routes.lua) || return 1
+  rules=$(_wezterm_required_asset lib/termnav/wezterm/public-link-rules.lua) || return 1
+
+  # Windows WezTerm runs outside the WSL shell environment. Publish Shdeps
+  # assets beside the Lua wrappers so they can load without a WSL lookup.
   _wezterm_copy "$HOME/.config/terminal/settings.json" "$winhome/.config/terminal/settings.json" || return 1
-  _wezterm_copy "$src" "$winhome/.wezterm.lua" || return 1
-  # Retire copies older configs needed: the companion appearance file and the
-  # working-spinner frames, which tabs no longer animate.
-  rm -f "$winhome/appearance.json" "$winhome/.config/terminal/working-spinner.frames" || return 1
+  _wezterm_copy "$routes" "$winhome/termnav-link-routes.lua" || return 1
+  _wezterm_copy "$rules" "$winhome/termnav-public-link-rules.lua" || return 1
 
   # Windows WezTerm loads ~/.wezterm.lua, so wezterm.config_dir is the Windows
-  # home. Keep companion Lua modules beside that file or dofile(config_dir...)
-  # fails even though the main config was copied correctly.
-  local module
+  # home. Publish all its companions before the primary file, which can
+  # trigger an immediate reload.
   for module in "$config_dir"/*.lua; do
     [[ -f "$module" && "${module##*/}" != "wezterm.lua" ]] || continue
-    _wezterm_copy "$module" "$winhome/${module##*/}"
+    _wezterm_copy "$module" "$winhome/${module##*/}" || return 1
   done
 
   _wezterm_sync_lua_dir \
     "$config_dir/hyperlink-rules.d" \
-    "$winhome/hyperlink-rules.d"
+    "$winhome/hyperlink-rules.d" || return 1
+  _wezterm_copy "$src" "$winhome/.wezterm.lua" || return 1
 
-  # Windows WezTerm runs outside the WSL shell environment. Copy the
-  # shdeps-resolved reusable modules beside their wrappers so the copied
-  # config remains self-contained on the Windows side.
-  _wezterm_copy_shdeps_asset \
-    lib/termnav/wezterm/link-routes.lua \
-    "$winhome/termnav-link-routes.lua"
-  _wezterm_copy_shdeps_asset \
-    lib/termnav/wezterm/public-link-rules.lua \
-    "$winhome/termnav-public-link-rules.lua"
+  # Older configs used the companion appearance file and the spinner frames.
+  # Retire them only once the new main file is in place.
+  rm -f "$winhome/appearance.json" "$winhome/.config/terminal/working-spinner.frames"
 }

@@ -227,7 +227,11 @@ exists() {
     _wezterm_valid_app "$app" "$expected" 2>/dev/null
   else
     _wezterm_native_current "$manager" "$target" "$expected" || return 1
-    [[ $(version) == "$expected" && $(_wezterm_version /usr/bin/wezterm-gui) == "$expected" ]]
+    [[ $(version) == "$expected" ]] || return 1
+    # The GUI handles --version before initializing its build ID. Native
+    # package metadata identifies the GUI; --help checks it can load without
+    # opening a window.
+    /usr/bin/wezterm-gui --help >/dev/null 2>&1
   fi
 }
 

@@ -439,6 +439,12 @@ append_all(keys, {
 })
 
 if is_macos then
+  -- Older WezTerm builds reject the smart-case pattern during config loading.
+  local ok, search = pcall(act.Search, { CaseSmartString = "" })
+  if not ok then
+    search = act.Search({ CaseSensitiveString = "" })
+  end
+
   -- Native-feeling macOS aliases mirroring the cross-platform Ctrl bindings.
   append_all(keys, {
     -- Font size controls
@@ -464,7 +470,7 @@ if is_macos then
     bind("]", "SUPER|SHIFT", act.ActivateTabRelative(1)),
 
     -- Search / launcher
-    bind("f", "SUPER", act.Search({ CaseSensitiveString = "" })),
+    bind("f", "SUPER", search),
     bind("g", "SUPER", act.CopyMode("NextMatch")),
     bind("g", "SUPER|SHIFT", act.CopyMode("PriorMatch")),
     bind("p", "SUPER|SHIFT", act.ActivateCommandPalette),

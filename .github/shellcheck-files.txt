@@ -125,6 +125,7 @@ program	.local/lib/dotfiles/tests/tmux-navigation-test
 program	.local/lib/dotfiles/tests/tmux-test
 program	.local/lib/dotfiles/tests/tool-init-test
 program	.local/lib/dotfiles/tests/wezterm-test
+program	.local/lib/dotfiles/tests/wezterm-install-smoke
 program	.local/lib/dotfiles/tests/with-relay-deps
 program	.local/lib/dotfiles/tests/worktree-gc-test
 program	.local/lib/dotfiles/tests/worktree-hygiene-test

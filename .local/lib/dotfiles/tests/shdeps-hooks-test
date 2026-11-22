@@ -226,8 +226,8 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
   printf 'ubuntu24.04-x86_64 %s %s %s\n' \
     "$_wezterm_pin" "$_wezterm_checksum" "$_wezterm_nightly/$_wezterm_archive" >"$_wezterm_manifest"
 
-  # Mock only the platform APIs and package transaction. The hook must read
-  # the real lock format and verify the downloaded bytes before calling sudo.
+  # Mock the external commands and platform APIs. The hook must read the real
+  # lock format and verify the downloaded bytes before calling sudo.
   # shellcheck disable=SC2329
   _wezterm_lock() { printf '%s\n' "$_wezterm_manifest"; }
   # shellcheck disable=SC2329
@@ -248,13 +248,18 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
   # shellcheck disable=SC2329
   shdeps_warn() { printf 'warn:%s\n' "$*" >>"$_wezterm_calls"; }
   # shellcheck disable=SC2329
-  _wezterm_version() {
+  function /usr/bin/wezterm {
+    [[ $* == --version ]] || return 1
+    printf 'wezterm %s\n' "$_wezterm_current"
+  }
+  # shellcheck disable=SC2329
+  function /usr/bin/wezterm-gui {
+    [[ -z ${_wezterm_gui_error:-} ]] || return "$_wezterm_gui_error"
     case "$1" in
-      /usr/bin/wezterm) ;;
-      /usr/bin/wezterm-gui) [[ -z ${_wezterm_missing_gui:-} ]] || return 1 ;;
+      --version) printf 'wezterm-gui someone forgot to call assign_version_info\n' ;;
+      --help) printf 'Usage: wezterm-gui [OPTIONS] [COMMAND]\n' ;;
       *) return 1 ;;
     esac
-    printf '%s\n' "$_wezterm_current"
   }
   # shellcheck disable=SC2329
   dpkg-query() {
@@ -299,6 +304,7 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
     done
     [[ -z ${_wezterm_sudo_fail:-} ]] || return 1
     _wezterm_current=$_wezterm_pin
+    unset _wezterm_gui_error
     if [[ $1 == dnf ]]; then
       _wezterm_rpm_versions=("$_wezterm_rpm_version" "$_wezterm_rpm_version" "$_wezterm_rpm_version" "$_wezterm_rpm_version")
     fi
@@ -309,13 +315,16 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
     printf 'FAIL: wezterm accepts an installed version that differs from its pin\n'
   fi
   if ! _wezterm_current=$_wezterm_pin exists; then
-    printf 'FAIL: wezterm rejects the exact pinned version\n'
+    printf 'FAIL: wezterm rejects the pinned install when the GUI version is a placeholder\n'
   fi
   if _wezterm_native_missing=1 _wezterm_current=$_wezterm_pin exists; then
     printf 'FAIL: wezterm accepts an executable with no native package\n'
   fi
-  if _wezterm_missing_gui=1 _wezterm_current=$_wezterm_pin exists; then
+  if _wezterm_gui_error=127 _wezterm_current=$_wezterm_pin exists; then
     printf 'FAIL: wezterm accepts a native installation missing the GUI\n'
+  fi
+  if _wezterm_gui_error=126 _wezterm_current=$_wezterm_pin exists; then
+    printf 'FAIL: wezterm accepts a native installation with a GUI that cannot execute\n'
   fi
   (
     # Match the real Shdeps driver: only process exit 75 asks the parent
@@ -333,6 +342,11 @@ _wezterm_result=$(_tmpdir)/wezterm-hook-results
   if ! grep -Fxq "curl:$_wezterm_nightly/$_wezterm_archive" "$_wezterm_calls" ||
     ! grep -Fq 'sudo:apt-get install -y --allow-downgrades --reinstall ' "$_wezterm_calls"; then
     printf 'FAIL: wezterm does not install the locked Ubuntu archive with APT\n'
+  fi
+  : >"$_wezterm_calls"
+  if ! _wezterm_gui_error=126 _wezterm_current=$_wezterm_pin install ||
+    ! grep -Fq 'sudo:apt-get install -y --allow-downgrades --reinstall ' "$_wezterm_calls"; then
+    printf 'FAIL: wezterm cannot repair a pinned APT installation with a broken GUI\n'
   fi
 
   : >"$_wezterm_calls"

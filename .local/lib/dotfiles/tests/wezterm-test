@@ -121,6 +121,63 @@ _assert_not_contains "shell integration does not publish raw tmux protocol state
 _assert_not_contains "shell integration carries no obsolete WezTerm cleanup" \
   "_dot_wezterm_retire_legacy_tmux_context" "$termnav_shell_content"
 
+shell_integration="$HOME/.config/wezterm/shell-integration.sh"
+shell_home=$(_tmpdir)
+shell_resources="$shell_home/Applications/WezTerm.app/Contents/Resources"
+mkdir -p "$shell_resources"
+cat >"$shell_resources/wezterm.sh" <<'EOF'
+printf 'source:semantic=%s:cwd=%s\n' "${WEZTERM_SHELL_SKIP_SEMANTIC_ZONES-unset}" "${WEZTERM_SHELL_SKIP_CWD-unset}"
+precmd_functions+=(__wezterm_osc7)
+EOF
+
+for test_shell in bash zsh; do
+  command -v "$test_shell" >/dev/null 2>&1 || continue
+  if [[ "$test_shell" == bash ]]; then
+    shell_args=(--noprofile --norc)
+  else
+    shell_args=(-f)
+  fi
+
+  # A tmux environment can be inherited by a different terminal (e.g. code .).
+  # Use the actual terminal owner, as dotfiles' OSC 133 publisher does.
+  for terminal_owner in tmux vscode WezTerm; do
+    if [[ "$terminal_owner" == tmux ]]; then
+      semantic=1
+    else
+      semantic="unset"
+    fi
+    # shellcheck disable=SC2016
+    shell_result=$(
+      HOME="$shell_home" TMUX='/fixture/socket,1,0' TERM_PROGRAM="$terminal_owner" \
+        "$test_shell" "${shell_args[@]}" -c '
+          unset __wezterm_sourced WEZTERM_SHELL_SKIP_SEMANTIC_ZONES WEZTERM_SHELL_SKIP_CWD
+          . "$1"
+          . "$1"
+          printf "after:semantic=%s:hook=%s\n" "${WEZTERM_SHELL_SKIP_SEMANTIC_ZONES-unset}" "${precmd_functions[*]}"
+        ' wezterm-test "$shell_integration"
+    )
+    _assert_eq "$test_shell/$terminal_owner: scoped bundled prompt marks and exactly one cwd hook" \
+      "$(printf 'source:semantic=%s:cwd=unset\nafter:semantic=unset:hook=__wezterm_osc7' "$semantic")" \
+      "$shell_result"
+  done
+done
+
+# Bash reloads its startup files in place. Start with hooks from an older
+# config and clear the guard as reloadsh does.
+# shellcheck disable=SC2016
+reload_result=$(
+  HOME="$shell_home" TMUX='/fixture/socket,1,0' TERM_PROGRAM=tmux bash --noprofile --norc -c '
+    unset __wezterm_sourced WEZTERM_SHELL_SKIP_SEMANTIC_ZONES WEZTERM_SHELL_SKIP_CWD
+    precmd_functions=(keep_precmd __wezterm_semantic_precmd __wezterm_user_vars_precmd __wezterm_osc7)
+    preexec_functions=(keep_preexec __wezterm_semantic_preexec __wezterm_user_vars_preexec)
+    . "$1"
+    printf "precmd:%s\npreexec:%s\n" "${precmd_functions[*]}" "${preexec_functions[*]}"
+  ' wezterm-test "$shell_integration"
+)
+_assert_eq 'bash reload replaces old WezTerm hooks and preserves other owners' \
+  $'source:semantic=1:cwd=unset\nprecmd:keep_precmd __wezterm_osc7\npreexec:keep_preexec' \
+  "$reload_result"
+
 # Shell startup is a recovery boundary. A missing or temporarily unavailable
 # shdeps checkout must disable Termnav for that shell without preventing the
 # user from reaching a prompt where `dot update` or `dot doctor` can repair it.
@@ -436,7 +493,7 @@ return {
 LUA
 
   _wezterm_bell_probe() {
-    local target_triple="$1"
+    local target_triple="$1" supports_smart_case="${2:-true}"
 
     HOME="$bell_home/missing-home" _wezterm_lua "
       local handlers = {}
@@ -444,6 +501,12 @@ LUA
       local spawned = {}
       local fake_action = {
         DisableDefaultAssignment = { action = 'DisableDefaultAssignment' },
+        Search = function(pattern)
+          if not $supports_smart_case and pattern.CaseSmartString then
+            error('unknown search match type')
+          end
+          return { action = 'Search', value = pattern }
+        end,
       }
       setmetatable(fake_action, {
         __index = function(_, name)
@@ -499,6 +562,18 @@ LUA
       local settings = parse_json('')
       assert(config_table.line_height == settings.spacing.vertical, 'shared vertical spacing')
       assert(config_table.scrollback_lines == settings.scrollback_lines, 'shared scrollback')
+      if ('$target_triple'):find('darwin', 1, true) then
+        local expected = $supports_smart_case and 'CaseSmartString' or 'CaseSensitiveString'
+        local found = false
+        for _, key in ipairs(config_table.keys) do
+          if key.key == 'f' and key.mods == 'SUPER' then
+            assert(key.action.action == 'Search' and key.action.value[expected] == '',
+              'macOS search must use ' .. expected)
+            found = true
+          end
+        end
+        assert(found, 'missing macOS search binding')
+      end
       for _, binding in ipairs(settings.send_keys) do
         if binding.platform == 'all' or ('$target_triple'):find('darwin', 1, true) then
           local found = false
@@ -528,6 +603,8 @@ LUA
   _assert_eq "wezterm renders BEL audibly on macOS" \
     "$(printf 'Disabled\nfunction\n1\nafplay|/System/Library/Sounds/Glass.aiff')" \
     "$macos_bell_result"
+  _assert_eq "wezterm loads with legacy macOS search support" \
+    "$macos_bell_result" "$(_wezterm_bell_probe x86_64-apple-darwin false)"
 
   linux_bell_result=$(_wezterm_bell_probe x86_64-unknown-linux-gnu)
   _assert_eq "wezterm renders BEL audibly on Linux" \
