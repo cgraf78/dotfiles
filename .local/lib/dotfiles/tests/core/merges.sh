@@ -551,11 +551,20 @@ YQ
   cat >"$tmux_bin/tmux" <<'TMUX'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$DOT_TEST_TMUX_LOG"
+if [[ $1 == -N && $2 == -L && $3 == default ]]; then shift 3; fi
 case "$1" in
   has-session)
-    [[ -f "$DOT_TEST_TMUX_SERVER" ]]
+    [[ -f "$DOT_TEST_TMUX_SERVER" ]] || exit 1
+    if [[ ${2:-} == ';' && ${3:-} == display-message ]]; then
+      cat "$DOT_TEST_TMUX_SERVER"
+    fi
     ;;
-  source-file) exit 0 ;;
+  display-message) cat "$DOT_TEST_TMUX_SERVER" ;;
+  source-file)
+    if [[ -n ${DOT_TEST_TMUX_REPLACE_WITH:-} ]]; then
+      printf '%s\n' "$DOT_TEST_TMUX_REPLACE_WITH" >"$DOT_TEST_TMUX_SERVER"
+    fi
+    ;;
   *) exit 2 ;;
 esac
 TMUX
@@ -567,7 +576,7 @@ TMUX
     merge
   }
 
-  : >"$tmux_server"
+  printf '%s\n' '/tmp/tmux-test/default:1234:1700000000' >"$tmux_server"
   : >"$tmux_log"
   tmux_missing_double_output=$(HOME="$tmux_home" PATH="$tmux_bin:$PATH" \
     DOT_TEST_TMUX_LOG="$tmux_log" DOT_TEST_TMUX_SERVER="$tmux_server" \
@@ -583,7 +592,7 @@ TMUX
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test 2>&1)
   # The read-only probe is the only contact: no reload from a foreign HOME.
   _assert_eq "tmux merge: non-account HOME leaves the user server untouched" \
-    "has-session" "$(cat "$tmux_log")"
+    "-N -L default has-session" "$(cat "$tmux_log")"
   _assert_contains "tmux merge: non-account HOME is reported" \
     "account home" "$tmux_non_account_output"
 
@@ -597,16 +606,19 @@ TMUX
   _assert_eq "tmux merge: non-account HOME without a server stays quiet" \
     "" "$tmux_no_server_output"
   _assert_eq "tmux merge: non-account HOME without a server only probes" \
-    "has-session" "$(cat "$tmux_log")"
-  : >"$tmux_server"
+    "-N -L default has-session" "$(cat "$tmux_log")"
+  printf '%s\n' '/tmp/tmux-test/default:1234:1700000000' >"$tmux_server"
 
+  tmux_probe='-N -L default has-session ; display-message -p #{socket_path}:#{pid}:#{start_time}'
+  tmux_recheck='-N -L default display-message -p #{socket_path}:#{pid}:#{start_time}'
   : >"$tmux_log"
-  HOME="$tmux_home" PATH="$tmux_bin:$PATH" DOT_TEST_TMUX="$tmux_bin/tmux" \
+  TMUX='/tmp/tmux-test/named,2345,0' HOME="$tmux_home" PATH="$tmux_bin:$PATH" \
+    DOT_TEST_TMUX="$tmux_bin/tmux" \
     DOT_TEST_TMUX_LOG="$tmux_log" \
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
-  tmux_expected=$(printf 'has-session\nsource-file %s' \
-    "$tmux_home/.config/tmux/tmux.conf")
-  _assert_eq "tmux merge: reloads the default running server" \
+  tmux_expected=$(printf '%s\n-N -L default source-file %s\n%s' \
+    "$tmux_probe" "$tmux_home/.config/tmux/tmux.conf" "$tmux_recheck")
+  _assert_eq "tmux merge: reloads the default server from a named session" \
     "$tmux_expected" "$(cat "$tmux_log")"
 
   rm -f "$tmux_server"
@@ -615,7 +627,7 @@ TMUX
     DOT_TEST_TMUX_LOG="$tmux_log" \
     DOT_TEST_TMUX_SERVER="$tmux_server" _run_tmux_merge_for_test
   _assert_eq "tmux merge: skips reload when no server is running" \
-    "has-session" "$(cat "$tmux_log")"
+    "$tmux_probe" "$(cat "$tmux_log")"
 
   # Converged runs skip the reload: the stamp records the config plus
   # every conf.d include, and any change (content, mtime, include set,
@@ -632,10 +644,11 @@ TMUX
   printf '%s\n' 'set -g mouse on' \
     >"$tmux_skip_home/.config/tmux/conf.d/10-base.conf"
   cp "$tmux_bin/tmux" "$tmux_skip_bin/tmux"
-  : >"$tmux_skip_server"
+  printf '%s\n' '/tmp/tmux-test/default:1234:1700000000' >"$tmux_skip_server"
   tmux_skip_conf="$tmux_skip_home/.config/tmux/tmux.conf"
-  tmux_skip_expected=$(printf 'has-session\nsource-file %s' \
-    "$tmux_skip_conf")
+  tmux_skip_reload=$(printf '%s\n-N -L default source-file %s' \
+    "$tmux_probe" "$tmux_skip_conf")
+  tmux_skip_expected="$tmux_skip_reload"$'\n'"$tmux_recheck"
   tmux_saved_home=$HOME
   tmux_saved_path=$PATH
   if [[ -z ${XDG_CACHE_HOME+x} ]]; then
@@ -683,6 +696,21 @@ TMUX
   : >"$tmux_skip_log"
   _run_tmux_merge_for_test >"$tmux_skip_home/out6.txt" 2>&1
   cp "$tmux_skip_log" "$tmux_skip_home/log6.txt"
+  touch -t 202001010000 "$tmux_skip_conf" "$tmux_skip_home/.config/tmux/conf.d/"*.conf
+  printf '%s\n' '/tmp/tmux-test/default:2345:1700000001' >"$tmux_skip_server"
+  : >"$tmux_skip_log"
+  _run_tmux_merge_for_test >"$tmux_skip_home/out-restart.txt" 2>&1
+  _assert_eq "tmux merge: a replacement server reloads unchanged config" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_log")"
+  tmux_stamp_before=$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")
+  printf '%s\n' '/tmp/tmux-test/default:3456:1700000002' >"$tmux_skip_server"
+  : >"$tmux_skip_log"
+  DOT_TEST_TMUX_REPLACE_WITH='/tmp/tmux-test/default:4567:1700000003' \
+    _run_tmux_merge_for_test >"$tmux_skip_home/out-race.txt" 2>&1
+  _assert_eq "tmux merge: reload checks the server again after sourcing" \
+    "$tmux_skip_expected" "$(cat "$tmux_skip_log")"
+  _assert_eq "tmux merge: a server replaced during reload leaves the old stamp" \
+    "$tmux_stamp_before" "$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")"
   # Without cksum the fingerprint fails closed: the reload still runs
   # and succeeds, but no stamp is written. The restricted PATH hides
   # cksum while keeping the double plus every command the hook needs.
@@ -717,7 +745,7 @@ TMUX
   _assert_contains "tmux merge: reload logs the hook line" \
     "tmux" "$(cat "$tmux_skip_home/out1.txt")"
   _assert_eq "tmux merge: converged run skips the reload" \
-    "has-session" "$(cat "$tmux_skip_home/log2.txt")"
+    "$tmux_probe" "$(cat "$tmux_skip_home/log2.txt")"
   _assert_eq "tmux merge: skipped run stays silent" \
     "" "$(cat "$tmux_skip_home/out2.txt")"
   _assert_eq "tmux merge: touched config reloads again" \
@@ -731,9 +759,43 @@ TMUX
   _assert_exit "tmux merge: missing cksum still succeeds" 0 \
     "$tmux_nock_status"
   _assert_eq "tmux merge: missing cksum reloads again" \
-    "$tmux_skip_expected" "$(cat "$tmux_skip_home/log7.txt")"
+    "$tmux_skip_reload" "$(cat "$tmux_skip_home/log7.txt")"
   _assert_eq "tmux merge: missing cksum writes no stamp" \
     "$tmux_stamp_before" "$(cat "$tmux_skip_cache/dot/merge-tmux.stamp")"
+
+  if _test_require_tmux "tmux merge: private server test"; then
+    (
+      set -e
+      tmux_real_base=$(_tmux_socket)
+      export TMUX_TMPDIR=${tmux_real_base%/*}
+      export HOME="$TMUX_TMPDIR/home" XDG_CACHE_HOME="$TMUX_TMPDIR/cache"
+      export SHELL
+      SHELL=$(command -v sh)
+      unset TMUX TMUX_PANE
+      export DOT_TEST=1 DOT_TEST_TMUX
+      DOT_TEST_TMUX=$(command -v tmux)
+      trap '
+        tmux -N -L named kill-server >/dev/null 2>&1 || :
+        tmux -N -L default kill-server >/dev/null 2>&1 || :
+        _cleanup_dir "$TMUX_TMPDIR"
+      ' EXIT
+      mkdir -p "$HOME/.config/tmux"
+      printf '%s\n' 'set-option -g @merge_probe loaded' >"$HOME/.config/tmux/tmux.conf"
+      tmux -L named -f /dev/null new-session -d -s named 'exec cat'
+      export TMUX
+      TMUX=$(tmux -N -L named display-message -p '#{socket_path},#{pid},0')
+      _run_tmux_merge_for_test
+      test -z "$(tmux -N -L named show-options -gqv @merge_probe)"
+      test ! -e "$XDG_CACHE_HOME/dot/merge-tmux.stamp"
+      if tmux -N -L default has-session >/dev/null 2>&1; then exit 1; fi
+
+      tmux -L default -f /dev/null new-session -d -s default 'exec cat'
+      _run_tmux_merge_for_test
+      test "$(tmux -N -L default show-options -gqv @merge_probe)" = loaded
+      test -z "$(tmux -N -L named show-options -gqv @merge_probe)"
+    )
+    _assert_exit "tmux merge: a real named server cannot steal the default reload" 0 "$?"
+  fi
   unset -f _run_tmux_merge_for_test merge 2>/dev/null
 
   echo "=== Karabiner source config ==="

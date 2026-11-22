@@ -1,11 +1,11 @@
 # tmux Merge Hook
 
-The tmux merge hook reloads `~/.config/tmux/tmux.conf` in the running default
-tmux server after `dot update` when the config changed. A stamp records
-checksums of `tmux.conf` and every `conf.d` include after each successful
-reload; when none of those inputs changed, the hook skips the reload. It does
-nothing when tmux is not installed or no default server is running, so
-unattended updates never start a server.
+The tmux merge hook targets the default socket after `dot update`, including
+when the command runs from a named tmux server. After a successful reload, the
+stamp records the server instance and checksums of `tmux.conf` and every
+`conf.d` include. Unchanged inputs on that same server skip the reload. A
+replacement server reloads once even when the config is unchanged. Unattended
+updates never start a tmux server.
 
 The hook implementation is
 `~/.local/lib/dotfiles/merge-hooks.d/tmux.sh`.
