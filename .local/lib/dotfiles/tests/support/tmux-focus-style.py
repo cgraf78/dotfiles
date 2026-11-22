@@ -125,16 +125,17 @@ class Client:
         while select.select([self.master], [], [], 0)[0]:
             try:
                 payload = os.read(self.master, 65536)
+                if not payload:
+                    # macOS and the BSDs can report a closed terminal as EOF.
+                    return
+                if b"\x1b[?996n" in payload:
+                    os.write(self.master, b"\x1b[?997;1n")
             except OSError as error:
-                # Linux reports EIO once the client has closed the terminal.
+                # The client can detach with a query still queued. Reading
+                # the closed PTY or replying to that query can raise EIO.
                 if error.errno == errno.EIO:
                     return
                 raise
-            if not payload:
-                # macOS and the BSDs report a closed terminal as end of file.
-                return
-            if b"\x1b[?996n" in payload:
-                os.write(self.master, b"\x1b[?997;1n")
 
     def pump_until_quiet(self, description: str, timeout: float = 2.0) -> bytes:
         """Collect one terminal update until its output has settled."""
@@ -303,6 +304,36 @@ class Client:
                     raise AssertionError(f"owned terminal child {pid} did not exit after KILL")
         if close_error is not None:
             raise close_error
+
+
+class ClientDrainTest(unittest.TestCase):
+    """Cover a terminal disappearing between reading a query and answering it."""
+
+    def test_exited_reaps_client_when_its_terminal_closes_before_the_reply(self) -> None:
+        client = Client.__new__(Client)
+        client.pid, client.master = 42, 3
+        with (
+            patch.object(select, "select", return_value=([client.master], [], [])),
+            patch.object(os, "read", return_value=b"\x1b[?996n"),
+            patch.object(os, "write", side_effect=OSError(errno.EIO, "terminal closed")) as reply,
+            patch.object(os, "waitpid", return_value=(42, 0)),
+        ):
+            self.assertTrue(client.exited())
+        reply.assert_called_once_with(client.master, b"\x1b[?997;1n")
+        self.assertIsNone(client.pid)
+        self.assertEqual(0, client.status)
+
+    def test_drain_reports_unexpected_write_errors(self) -> None:
+        client = Client.__new__(Client)
+        client.master = 3
+        with (
+            patch.object(select, "select", return_value=([client.master], [], [])),
+            patch.object(os, "read", return_value=b"\x1b[?996n"),
+            patch.object(os, "write", side_effect=OSError(errno.EBADF, "invalid descriptor")),
+        ):
+            with self.assertRaises(OSError) as failure:
+                client.drain()
+        self.assertEqual(errno.EBADF, failure.exception.errno)
 
 
 class ClientCloseTest(unittest.TestCase):
