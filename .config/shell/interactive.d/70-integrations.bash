@@ -16,12 +16,8 @@ if [[ "$_UNAME" == "Darwin" ]]; then
   if [[ -z "${NVIM:-}" ]]; then
     # shellcheck disable=SC1091  # optional local integration script
     test -e "${HOME}/.iterm2_shell_integration.bash" && . "${HOME}/.iterm2_shell_integration.bash"
-    # shellcheck disable=SC1091  # optional local app integration script
-    # Guard: wezterm.sh appends duplicate hooks on every re-source.
-    if [[ -z "${__wezterm_sourced:-}" ]]; then
-      test -e "/Applications/WezTerm.app/Contents/Resources/wezterm.sh" && . "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
-      __wezterm_sourced=1
-    fi
+    # shellcheck source=/dev/null
+    . "$HOME/.config/wezterm/shell-integration.sh"
   fi
 fi
 

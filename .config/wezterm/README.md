@@ -1,5 +1,33 @@
 # WezTerm Config
 
+## Installed build
+
+The [Shdeps lockfile](../shdeps/hooks.d/wezterm-build.lock) selects the exact
+desktop build per platform. `dot update` checks the executable version and
+installs the selected build if it differs. Shdeps downloads the original
+packages from a versioned [WezTerm snapshot](https://github.com/cgraf78/wezterm-builds)
+and verifies their SHA-256 before installation. Upstream nightly rotation
+does not change these snapshots. To upgrade or roll back, use the
+[snapshot repo's lock generator](https://github.com/cgraf78/wezterm-builds#move-or-roll-back-the-dotfiles-pin)
+for the selected release and review the generated change before landing it.
+
+On macOS, launch `~/Applications/WezTerm.app` to use the managed build. The
+installer puts a `wezterm` launcher in the Shdeps bin directory and keeps a system
+or Homebrew app at `/Applications/WezTerm.app` available during migration.
+If the Dock points to that app, replace its shortcut with the one in your
+home Applications folder. Use `wezterm --version` to check the CLI build.
+
+On Linux, the hook selects by distro, release, and architecture. It uses the
+native package manager, so a system upgrade can change the installed build
+between Shdeps runs. Linux needs `DISPLAY` or `WAYLAND_DISPLAY` for the hook
+to act. An unsupported desktop target reports a missing pin instead of
+installing a different version. CI, headless Linux, and native Windows under
+WSL keep their existing install behavior.
+
+Update Arch through its normal package manager before applying the pin. The
+current package needs OpenSSL 4 and replaces the older split
+`wezterm-shell-integration` package.
+
 ## Start here for WezTerm edits
 
 WezTerm is the primary terminal and the reference behavior for the other
@@ -257,7 +285,7 @@ an outer tab does not acknowledge hidden inner panes; tmux's existing
 selection/focus policy owns acknowledgement. Pane-global acknowledgement by
 one attached client remains acknowledgement for the other clients too.
 
-The stable 2024 WezTerm build is sufficient. Its formatter must stay
+The formatter supports the stable 2024 WezTerm build. It must stay
 process-free; the status callback only inspects cached mux data. A local
 reception lease hides stale snapshots after a lost publisher, including while
 the terminal is otherwise quiet. Reconnection replays the source state. The
