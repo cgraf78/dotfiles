@@ -171,6 +171,9 @@ class NavigationTest(unittest.TestCase):
     """Check Ctrl-backslash dispatch in an isolated real tmux client."""
 
     config: pathlib.Path
+    # A forwarded Ctrl-backslash without a binding must not kill a fixture
+    # pane via VQUIT and make tmux appear to switch to the previous pane.
+    idle_pane = "trap '' QUIT; exec sleep 30"
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(
@@ -194,11 +197,11 @@ class NavigationTest(unittest.TestCase):
             "-d",
             "-s",
             "navigation",
-            "sleep 30",
+            self.idle_pane,
         )
         self.active = self.active_pane()
         self.inactive = self.tmux(
-            "split-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
+            "split-window", "-d", "-P", "-F", "#{pane_id}", self.idle_pane
         ).stdout.strip()
         self.clients: list[Client] = []
 
@@ -237,10 +240,22 @@ class NavigationTest(unittest.TestCase):
             lambda: self.active_pane() == self.active,
             "Ctrl-backslash pane selection",
         )
+        self.assertCountEqual(
+            [self.active, self.inactive], self.tmux("list-panes", "-F", "#{pane_id}").stdout.split()
+        )
 
     def test_ctrl_backslash_forwards_through_a_nested_tmux(self) -> None:
+        attach_hook = "client-attached[999999]"
+        attach_complete = "set-option -g @navigation_attached 1"
+        self.tmux("set-hook", "-g", attach_hook, attach_complete)
         client = Client(self)
         self.clients.append(client)
+
+        def outer_attached() -> bool:
+            client.pump(0.02)
+            return self.tmux("show-options", "-gqv", "@navigation_attached").stdout.strip() == "1"
+
+        wait_until(outer_attached, "outer tmux attach hooks complete")
         client.set_focus(True)
 
         inner_socket = self.root / "inner socket.sock"
@@ -259,14 +274,15 @@ class NavigationTest(unittest.TestCase):
                 "-d",
                 "-s",
                 "nested",
-                "sleep 30",
+                self.idle_pane,
             )
             inner_first = inner("display-message", "-p", "#{pane_id}").stdout.strip()
             inner_second = inner(
-                "split-window", "-d", "-P", "-F", "#{pane_id}", "sleep 30"
+                "split-window", "-d", "-P", "-F", "#{pane_id}", self.idle_pane
             ).stdout.strip()
             inner("select-pane", "-t", inner_first)
             inner("select-pane", "-t", inner_second)
+            inner("set-hook", "-g", attach_hook, attach_complete)
 
             # tmux runs pane commands through `default-shell -c`. Only some
             # shells (bash, zsh) exec a lone simple command; dash and mksh
@@ -301,7 +317,9 @@ class NavigationTest(unittest.TestCase):
                 "nested tmux foreground process",
             )
 
-            def nested_owns_mouse() -> bool:
+            # Initial mouse reporting can arrive before attach hooks finish.
+            # Wait for both so the key is sent after the inner queue is ready.
+            def nested_ready() -> bool:
                 client.pump(0.02)
                 return (
                     self.tmux(
@@ -312,18 +330,38 @@ class NavigationTest(unittest.TestCase):
                         "#{mouse_any_flag}",
                     ).stdout.strip()
                     == "1"
+                    and inner("show-options", "-gqv", "@navigation_attached").stdout.strip() == "1"
                 )
 
-            wait_until(nested_owns_mouse, "nested tmux mouse ownership")
+            wait_until(nested_ready, "nested tmux mouse ownership and attach hooks")
+            self.assertEqual(inner_second, self.active_pane(inner_socket))
             client.send(b"\x1c")
-            wait_until(
-                lambda: self.active_pane(inner_socket) == inner_first,
-                "nested Ctrl-backslash previous-pane selection",
-            )
+
+            def previous_pane_selected() -> bool:
+                # Keep draining the outer PTY while the inner redraw travels
+                # through it. A blocked output stream can stall the fixture.
+                client.pump(0.02)
+                return self.active_pane(inner_socket) == inner_first
+
+            try:
+                wait_until(previous_pane_selected, "nested Ctrl-backslash previous-pane selection")
+            except AssertionError as error:
+                outer_pane = self.tmux("display-message", "-p", "#{pane_id}", check=False).stdout
+                inner_pane = inner("display-message", "-p", "#{pane_id}", check=False).stdout
+                clients = inner(
+                    "list-clients", "-F", "#{client_name} #{client_key_table}", check=False
+                ).stdout
+                raise AssertionError(
+                    f"{error}; outer pane={outer_pane.strip()!r}, "
+                    f"inner pane={inner_pane.strip()!r}, inner clients={clients!r}"
+                ) from error
             self.assertEqual(
                 self.active,
                 self.active_pane(),
                 "the outer tmux must forward rather than consume the nested chord",
+            )
+            self.assertCountEqual(
+                [inner_first, inner_second], inner("list-panes", "-F", "#{pane_id}").stdout.split()
             )
         finally:
             inner("kill-server", check=False)
