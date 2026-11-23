@@ -50,11 +50,15 @@ echo "=== Published pair existence ==="
 # itself.
 _live_probe() {
   local label=$1 url=$2 code rc=0
-  code=$(curl --fail --silent --location --range 0-0 --output /dev/null \
+  code=$(curl -q --fail --silent --location --range 0-0 --output /dev/null \
     --write-out '%{http_code}' \
     --connect-timeout 10 --max-time 60 \
     --retry 4 --retry-delay 3 --retry-max-time 90 --retry-all-errors \
     "$url" 2>/dev/null) || rc=$?
+  # Some curl versions return zero if Retry-After exceeds the retry window.
+  if ((rc == 0)) && [[ $code != 2[0-9][0-9] ]]; then
+    rc=22
+  fi
   if ((rc == 0)); then
     _assert_exit "$label" 0 "$rc"
   else

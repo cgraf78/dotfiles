@@ -120,11 +120,21 @@ jobs:
           persist-credentials: false
 
       - name: Install profile test prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@d4db2a438c15513589b57a1d77fb12aaae2a7789
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@8830716e01e0ab2d770b760a76ff96c4f37b944d
         with:
           matrix-name: Ubuntu
           profiles: base,jq,python,zsh,lua,neovim,tmux-pinned,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
           setup: none
+
+      - name: Download pinned Neovim integration runtime
+        uses: cgraf78/actions/.github/actions/download-release-asset@8830716e01e0ab2d770b760a76ff96c4f37b944d
+        with:
+          repository: neovim/neovim
+          tag: v0.12.2
+          asset: nvim-linux-x86_64.tar.gz
+          output: ${{ runner.temp }}/neovim-0.12.2.tar.gz
+          sha256: 31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260
+          retries: "3"
 
       - name: Install pinned Neovim integration runtime
         shell: bash
@@ -133,29 +143,24 @@ jobs:
           install_root="$RUNNER_TEMP/neovim-0.12.2"
           archive="$RUNNER_TEMP/neovim-0.12.2.tar.gz"
           mkdir -p "$install_root"
-          curl --fail --location --retry 3 --retry-all-errors \
-            --output "$archive" \
-            https://github.com/neovim/neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz
-          printf '%s  %s\n' \
-            31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260 \
-            "$archive" | sha256sum --check --strict
           tar -xzf "$archive" --strip-components=1 -C "$install_root"
           printf '%s  %s\n' \
             fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e \
             "$install_root/bin/nvim" | sha256sum --check --strict
 
-      - name: Install pinned yq integration runtime
+      - name: Download pinned yq integration runtime
+        uses: cgraf78/actions/.github/actions/download-release-asset@8830716e01e0ab2d770b760a76ff96c4f37b944d
+        with:
+          repository: mikefarah/yq
+          tag: v4.53.6
+          asset: yq_linux_amd64
+          output: ${{ runner.temp }}/yq-v4.53.6
+          sha256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
+          retries: "3"
+
+      - name: Enable pinned yq integration runtime
         shell: bash
-        run: |-
-          set -euo pipefail
-          yq_bin="$RUNNER_TEMP/yq-v4.53.6"
-          curl --fail --location --retry 3 --retry-all-errors \
-            --output "$yq_bin" \
-            https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64
-          printf '%s  %s\n' \
-            c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385 \
-            "$yq_bin" | sha256sum --check --strict
-          chmod +x "$yq_bin"
+        run: chmod +x "$RUNNER_TEMP/yq-v4.53.6"
 
       - name: Test installed profile leg
         shell: bash

@@ -141,3 +141,9 @@ program	.local/lib/dotfiles/tests/worktree-gc-orphans-test
 program	.local/lib/dotfiles/merge-hooks.d/terminal.sh
 program	.local/lib/dotfiles/tests/terminal-font-test
 program	.local/lib/dotfiles/tests/iterm2-test
+program	.local/lib/dotfiles/tests/capability-harness/capability-fixture.sh
+program	.local/lib/dotfiles/tests/capability-harness/dot-release.sh
+program	.local/lib/dotfiles/tests/capability-harness/github-release.sh
+program	.local/lib/dotfiles/tests/capability-harness/suite-inventory.sh
+program	.local/lib/dotfiles/tests/capability-harness/wait-github-state.sh
+program	.local/lib/dotfiles/tests/capability-harness/workflow-contract.sh

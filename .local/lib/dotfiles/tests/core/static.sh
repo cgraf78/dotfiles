@@ -181,15 +181,16 @@ dot_core_test_static() {
   _assert_contains "installed profile gate rejects a profile subset in chained modes" \
     "DOT_STACK_PROFILES only applies to test and doctor modes" \
     "$(<"$root/.local/lib/dotfiles/tests/profile-fixture-integration")"
+  _assert_contains "CI workflow: uses the shared verified release downloader" \
+    "uses: cgraf78/actions/.github/actions/download-release-asset@" "$installed_workflow"
   _assert_contains "CI workflow: pins the installed-profile Neovim release" \
-    "neovim/releases/download/v0.12.2/nvim-linux-x86_64.tar.gz" "$installed_workflow"
+    $'repository: neovim/neovim\n          tag: v0.12.2\n          asset: nvim-linux-x86_64.tar.gz' "$installed_workflow"
   _assert_contains "CI workflow: verifies the installed-profile Neovim binary" \
     "fe333ad1dddfeb4b15169859287369207443477288737d4b94c07df7647ae21e" "$installed_workflow"
   _assert_contains "CI workflow: verifies the installed-profile Neovim archive" \
     "31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260" "$installed_workflow"
-  # shellcheck disable=SC2016 # Match the literal workflow shell.
-  nvim_archive_verify_line=$(grep -nF '            "$archive" | sha256sum --check --strict' \
-    "$installed_workflow_file" | head -1 | cut -d: -f1)
+  nvim_archive_verify_line=$(grep -nF 'sha256: 31cf85945cb600d96cdf69f88bc68bec814acbff50863c5546adef3a1bcef260' \
+    "$installed_workflow_file" | cut -d: -f1)
   # shellcheck disable=SC2016 # Match the literal workflow shell.
   nvim_extract_line=$(grep -nF '          tar -xzf "$archive"' \
     "$installed_workflow_file" | cut -d: -f1)
@@ -202,7 +203,7 @@ dot_core_test_static() {
   _assert_contains "CI workflow: passes the audited Neovim runtime explicitly" \
     "DOT_STACK_NVIM_BIN:" "$installed_workflow"
   _assert_contains "CI workflow: pins the installed-profile yq release" \
-    "mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64" "$installed_workflow"
+    $'repository: mikefarah/yq\n          tag: v4.53.6\n          asset: yq_linux_amd64' "$installed_workflow"
   _assert_contains "CI workflow: verifies the installed-profile yq binary" \
     "c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385" "$installed_workflow"
   _assert_contains "CI workflow: passes the audited yq runtime explicitly" \
