@@ -229,8 +229,15 @@ _assert_contains 'Ubuntu CI measures clean profile footprints' \
 _assert_contains 'top-level CI installs hostname for profile selection' \
   'profiles: base,jq,python,zsh,lua,tmux-pinned,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname,shellcheck' \
   "$workflow_content"
+termux_profiles=$(awk '
+  /^  shell:$/ { shell_job = 1; next }
+  shell_job && /^  [^[:space:]#]/ { exit }
+  shell_job && /^      termux-profiles:[[:space:]]/ { print $2; exit }
+' "$workflow")
 _assert_contains 'Termux CI installs hostname for profile selection' \
-  'termux-profiles: base,python,tmux,ripgrep,hostname' "$workflow_content"
+  ',hostname,' ",$termux_profiles,"
+_assert_contains 'Termux CI installs jq for authenticated Dot downloads' \
+  ',jq,' ",$termux_profiles,"
 _assert_eq 'cold bootstrap installs hostname for profile selection' 1 \
   "$(grep -Fxc \
     '          profiles: base,jq,python,zsh,lua,openssh-netcat-lsof,procps,cron,fd,ripgrep,hostname' \
