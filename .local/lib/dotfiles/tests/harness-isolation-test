@@ -192,6 +192,36 @@ _assert_eq "system Git: tracked launcher uses the selected backend" \
 PATH=$saved_path
 unset DOT_TEST_SYSTEM_GIT
 
+echo '=== Inherited Git isolation ==='
+
+caller_repo=$(_tmpdir)
+fixture_repo=$(_tmpdir)
+caller_config=$(_tmpfile)
+git -C "$caller_repo" init --quiet --template='' --initial-branch=caller
+git config --file "$caller_config" fixture.sentinel preserved
+git_status=0
+git_result=$(
+  export GIT_DIR="$caller_repo/.git" GIT_WORK_TREE="$caller_repo"
+  export GIT_CONFIG_GLOBAL="$caller_config" GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_KEY_0=fixture.injected GIT_CONFIG_VALUE_0=caller
+  # shellcheck disable=SC2016 # The child expands the helper and repository arguments.
+  "$BASH" -ec '
+    . "$1"
+    git -C "$2" init --quiet --template="" --initial-branch=fixture
+    git -C "$2" config --global fixture.writable yes
+    if git -C "$2" config --get-regexp "^fixture\\.(sentinel|injected)$"; then
+      exit 1
+    fi
+    git -C "$2" symbolic-ref --short HEAD
+  ' bash "$SOURCE_HOME/.local/lib/dotfiles/tests/helpers.sh" "$fixture_repo" 2>&1
+) || git_status=$?
+_assert_exit 'Git fixture setup succeeds with inherited selectors and config' 0 "$git_status"
+_assert_eq 'Git fixture uses a separate repository' fixture "$git_result"
+_assert_eq 'Git fixture preserves the caller branch' \
+  caller "$(git -C "$caller_repo" symbolic-ref --short HEAD)"
+_assert_eq 'Git fixture preserves the caller global config' \
+  $'[fixture]\n\tsentinel = preserved' "$(cat "$caller_config")"
+
 _mock_home
 case "$HOME/" in
   "$_DOT_TEST_TMP_ROOT/"*) _pass "harness runtime: HOME is suite-local" ;;
