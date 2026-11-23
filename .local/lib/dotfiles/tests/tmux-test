@@ -977,7 +977,7 @@ if $tmux_usable; then
       done
       picker_candidates=" $(sed -n "s/^candidate='\(.*\)'$/\1/p" "$picker_helper" |
         grep -o '@[a-z_]*' | tr '\n' ' ')"
-      _assert_ne 'tmux: the agent picker names its candidate marks' ' ' "$picker_candidates"
+      _assert_contains 'tmux: the agent picker names its candidate marks' '@' "$picker_candidates"
       picker_levels=''
       while IFS= read -r option; do
         case $picker_candidates in *" $option "*) ;; *) picker_levels+="$option " ;; esac
