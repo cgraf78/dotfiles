@@ -198,6 +198,61 @@ if _dot_release_fetch "file://$release_tree" dot \
 else
   _fail 'fixture release downloads and extracts'
 fi
+
+github_dest=$(_tmpdir)/github-release
+mkdir -p "$github_dest"
+if (
+  export GH_TOKEN=fixture-token
+  fixture_files=$release_tree/releases/download/$fixture_tag
+  # shellcheck disable=SC2329 # The shared release transport invokes this seam.
+  jq() {
+    case "$4" in
+      "$fixture_asset") printf '1\n' ;;
+      "$fixture_asset.sha256") printf '2\n' ;;
+      *) return 1 ;;
+    esac
+  }
+  # shellcheck disable=SC2329 # The shared release transport invokes this seam.
+  curl() {
+    local output='' url='' auth=''
+    while (($# > 0)); do
+      case $1 in
+        --config)
+          auth=$(cat)
+          shift
+          ;;
+        --output)
+          output=$2
+          shift
+          ;;
+        https://*) url=$1 ;;
+      esac
+      shift
+    done
+    [[ $auth == *'Authorization: Bearer fixture-token'* ]] || return 1
+    case "$url" in
+      "https://api.github.com/repos/fixture/project/releases/tags/$fixture_tag")
+        : >"$output"
+        ;;
+      https://api.github.com/repos/fixture/project/releases/assets/1)
+        cp "$fixture_files/$fixture_asset" "$output" || return
+        ;;
+      https://api.github.com/repos/fixture/project/releases/assets/2)
+        cp "$fixture_files/$fixture_asset.sha256" "$output" || return
+        ;;
+      *) return 1 ;;
+    esac
+    printf 200
+  }
+  _dot_release_fetch https://github.com/fixture/project dot \
+    "$fixture_tag" "$fixture_platform" "$github_dest"
+); then
+  _assert_eq 'GitHub release downloads and verifies both REST assets' \
+    "$fixture_tag" "$(_dot_release_version_tag "$github_dest/dot")"
+else
+  _fail 'GitHub release downloads and verifies both REST assets'
+fi
+
 _assert_eq 'fetched binary reports the fixture tag' "$fixture_tag" \
   "$(_dot_release_version_tag "$fetch_dest/dot")"
 if _dot_runtime_is_release_root "$fetch_dest"; then
@@ -273,6 +328,26 @@ if _dot_release_fetch "file://$corrupt_tree" dot \
 else
   _pass 'checksum mismatch fails the fetch'
 fi
+
+unrelated_tree=$(_tmpdir)/unrelated-checksum
+unrelated_assets=$unrelated_tree/releases/download/$fixture_tag
+mkdir -p "$unrelated_assets"
+fixture_files=$release_tree/releases/download/$fixture_tag
+cp "$fixture_files/$fixture_asset" "$unrelated_assets/$fixture_asset"
+digest=$(awk '{print $1}' "$fixture_files/$fixture_asset.sha256")
+# The file exists and has matching bytes; it is outside this download and
+# cannot serve as the verified archive just because the sidecar names it.
+printf '%s  %s\n' "$digest" "$fixture_files/$fixture_asset" \
+  >"$unrelated_assets/$fixture_asset.sha256"
+unrelated_dest=$(_tmpdir)/unverified
+mkdir -p "$unrelated_dest"
+if _dot_release_fetch "file://$unrelated_tree" dot \
+  "$fixture_tag" "$fixture_platform" "$unrelated_dest" >/dev/null 2>&1; then
+  _fail 'sidecar selecting an unrelated file fails the fetch'
+else
+  _pass 'sidecar selecting an unrelated file fails the fetch'
+fi
+
 nonempty_dest=$(_tmpdir)/nonempty
 mkdir -p "$nonempty_dest"
 printf 'sentinel\n' >"$nonempty_dest/sentinel"

@@ -2,8 +2,8 @@
 # dot-runtime-resolve.sh — shared Dot runtime resolution for the CI wrappers.
 #
 # Sourced (never executed) by stack-dot-runtime, run-ci-candidate-home, run-ci,
-# and the suites that must accept both Dot layouts. Dependency-free pure shell:
-# only POSIX utilities plus curl, git, and tar on the release path.
+# and the suites that must accept both Dot layouts. jq enables authenticated
+# transport for GitHub assets when the caller supplies a token.
 #
 # Two layouts exist after the dot Rust cutover:
 #   git checkout  — $root/bin/dot plus a .git directory (explicit revisions).
@@ -97,8 +97,8 @@ _dot_release_tag_from_effective_url() {
 }
 
 # Resolve the latest release tag for owner/repo $1 (default cgraf78/dot) via
-# the anonymous web redirect. This intentionally avoids api.github.com: CI has
-# no token and the matrix would exhaust the unauthenticated API quota.
+# the anonymous web redirect. Keeping tag discovery on the public web URL
+# leaves the REST credential for the exact release assets.
 _dot_release_latest_tag() {
   local repo=${1:-cgraf78/dot} effective rc=0
   case $repo in
@@ -108,7 +108,8 @@ _dot_release_latest_tag() {
       return 1
       ;;
   esac
-  effective=$(curl -fsSIL -o /dev/null -w '%{url_effective}' \
+  effective=$(curl -q -fsSIL -o /dev/null -w '%{url_effective}' \
+    --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 30 \
     --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
     "https://github.com/$repo/releases/latest") || rc=$?
   [[ $rc -eq 0 ]] || {
@@ -158,13 +159,35 @@ _dot_release_commit_for_tag() {
   printf '%s\n' "$sha"
 }
 
+# CI's GitHub downloads use the shared, lock-checked transport. Custom bases,
+# including file:// fixtures, keep their exact URL and never receive a token.
+_dot_release_asset() {
+  local base=$1 tag=$2 filename=$3 output=$4 seconds=$5
+  local -a options=(--connect-timeout 10 --max-time "$seconds"
+    --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors)
+  case $base in
+    https://github.com/*) (
+      # shellcheck source=capability-harness/github-release.sh
+      . "${BASH_SOURCE[0]%/*}/capability-harness/github-release.sh" || return
+      github_release_download "${base#https://github.com/}" "$tag" "$filename" \
+        "$output" "${options[@]}"
+    ) ;;
+    *)
+      curl -q --fail --silent --show-error --location "${options[@]}" \
+        "$base/releases/download/$tag/$filename" -o "$output"
+      ;;
+  esac
+}
+
 # Download asset $2 at tag $3 for platform $4 from release base $1 into $5.
 # Base is https://github.com/<repo> in production; unit tests pass a file://
 # fixture tree with the same releases/download/<tag>/ layout. Verifies the
 # published .sha256 sidecar before extracting, and only into an empty dir.
-_dot_release_fetch() {
+_dot_release_fetch() (
+  # shellcheck source=capability-harness/dot-release.sh
+  . "${BASH_SOURCE[0]%/*}/capability-harness/dot-release.sh" || return
   local base=${1:-} asset=${2:-} tag=${3:-} platform=${4:-} dest=${5:-}
-  local scratch tarball sidecar sum_bin
+  local scratch tarball sidecar
   [[ -n $base && -n $asset && -n $dest ]] || {
     printf 'dot-runtime-resolve: missing fetch arguments\n' >&2
     return 1
@@ -197,38 +220,21 @@ _dot_release_fetch() {
       "$dest" >&2
     return 1
   }
-  if command -v sha256sum >/dev/null 2>&1; then
-    sum_bin=sha256sum
-  elif command -v shasum >/dev/null 2>&1; then
-    sum_bin='shasum -a 256'
-  else
-    printf 'dot-runtime-resolve: sha256sum or shasum is required\n' >&2
-    return 1
-  fi
   tarball=$asset-$tag-$platform.tar.gz
   sidecar=$tarball.sha256
   scratch=$(mktemp -d) || return 1
-  # The scratch download must never survive into the extracted runtime.
-  trap 'rm -rf -- "$scratch"' RETURN
-  curl --fail --silent --show-error --location \
-    --connect-timeout 10 --max-time 120 \
-    --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
-    "$base/releases/download/$tag/$tarball" -o "$scratch/$tarball" || {
+  # The scratch download must never survive either an early error or
+  # successful extraction, and its cleanup belongs to this subshell.
+  trap 'rm -rf -- "$scratch"' EXIT
+  _dot_release_asset "$base" "$tag" "$tarball" "$scratch/$tarball" 120 || {
     printf 'dot-runtime-resolve: could not download %s\n' "$tarball" >&2
     return 1
   }
-  curl --fail --silent --show-error --location \
-    --connect-timeout 10 --max-time 60 \
-    --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
-    "$base/releases/download/$tag/$sidecar" -o "$scratch/$sidecar" || {
+  _dot_release_asset "$base" "$tag" "$sidecar" "$scratch/$sidecar" 60 || {
     printf 'dot-runtime-resolve: could not download %s\n' "$sidecar" >&2
     return 1
   }
-  # shellcheck disable=SC2086 # The checksum command is selected above.
-  (cd "$scratch" && $sum_bin -c "$sidecar") >/dev/null || {
-    printf 'dot-runtime-resolve: checksum mismatch for %s\n' "$tarball" >&2
-    return 1
-  }
+  capability_dot_release_verify_checksum "$scratch/$tarball" "$scratch/$sidecar" || return
   tar -xzf "$scratch/$tarball" -C "$dest" || {
     printf 'dot-runtime-resolve: could not extract %s\n' "$tarball" >&2
     return 1
@@ -239,9 +245,7 @@ _dot_release_fetch() {
     printf 'dot-runtime-resolve: archive ships reserved shdeps marker\n' >&2
     return 1
   fi
-  trap - RETURN
-  rm -rf -- "$scratch"
-}
+)
 
 # Print the release version tag from `$1 version`, e.g.
 # `dot 20260914-103531-41e0dcd5 (config 1; extensions 1; library 1)`.
