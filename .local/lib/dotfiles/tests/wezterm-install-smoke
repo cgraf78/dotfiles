@@ -12,7 +12,7 @@ if [[ -e /usr/bin/wezterm || -e /usr/bin/wezterm-gui ]]; then
   exit 1
 fi
 
-root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+root=$(CDPATH='' cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 conf=$(mktemp -d "${TMPDIR:-/tmp}/wezterm-install-smoke.XXXXXXXX")
 trap 'rm -rf -- "$conf"' EXIT
 

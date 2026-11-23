@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+root=$(CDPATH='' cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 candidate_sha=${DOTFILES_CANDIDATE_SHA:-}
 [[ $candidate_sha =~ ^[0-9a-f]{40}$ ]] || {
   printf 'checkout-ci-candidate: invalid immutable candidate revision: %s\n' \

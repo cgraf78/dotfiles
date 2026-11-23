@@ -33,7 +33,8 @@ jobs:
         export DOTFILES_CANDIDATE_SHA='${{ github.event.pull_request.head.sha || github.sha }}'
         # A suite that would skip its real-tmux coverage fails instead.
         export DOT_TEST_REQUIRE_TMUX=1
-        .local/lib/dotfiles/tests/checkout-ci-candidate
+        # Exercise relative fixture entry points with a caller's CDPATH set.
+        CDPATH=. .local/lib/dotfiles/tests/checkout-ci-candidate
         # Post-cutover the engine ships only as a native binary and the matrix
         # images carry no Rust toolchain: resolve the control-plane runtime
         # from the latest published release instead of a source checkout.

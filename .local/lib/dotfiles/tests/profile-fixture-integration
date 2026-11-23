@@ -4,7 +4,7 @@
 set -u
 
 host_home=${DOT_TEST_HOST_HOME:-$HOME}
-source_home=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+source_home=$(CDPATH='' cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 
 # shellcheck source=helpers.sh
 . "$source_home/.local/lib/dotfiles/tests/helpers.sh"

@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+root=$(CDPATH='' cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 inventory=$root/.github/dot-test-suites.txt
 tests_rel=.local/lib/dotfiles/tests
 # Suites that need this resolved CI runtime live one level down. Dot discovers
