@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from subprocess import Popen
 
 from tmux_paths import short_temporary_parent
 
@@ -160,7 +161,7 @@ def run_workers(commands: list[list[str]]) -> int:
                     )
                     launching = True
                     try:
-                        worker = subprocess.Popen(
+                        worker = Popen(
                             command,
                             stdout=output,
                             stderr=subprocess.STDOUT,

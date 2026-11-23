@@ -71,7 +71,7 @@ class WorkerTest(unittest.TestCase):
 
         with (
             contextlib.redirect_stdout(io.StringIO()),
-            patch("tmux_workers.subprocess.Popen", side_effect=launch),
+            patch("tmux_workers.Popen", side_effect=launch),
             self.assertRaises(FileNotFoundError),
         ):
             run_workers(
@@ -95,7 +95,7 @@ class WorkerTest(unittest.TestCase):
 
         with (
             contextlib.redirect_stdout(io.StringIO()),
-            patch("tmux_workers.subprocess.Popen", side_effect=launch),
+            patch("tmux_workers.Popen", side_effect=launch),
             self.assertRaises(KeyboardInterrupt),
         ):
             run_workers([[sys.executable, "-c", "import time; time.sleep(60)"]])
@@ -116,7 +116,7 @@ class WorkerTest(unittest.TestCase):
             with (
                 contextlib.redirect_stdout(io.StringIO()),
                 contextlib.redirect_stderr(io.StringIO()),
-                patch("tmux_workers.subprocess.Popen", side_effect=launch),
+                patch("tmux_workers.Popen", side_effect=launch),
                 patch("tmux_workers.clean_servers", side_effect=ValueError("partial record")),
                 self.assertRaises(KeyboardInterrupt),
             ):
