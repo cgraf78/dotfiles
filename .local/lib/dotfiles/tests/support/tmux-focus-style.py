@@ -24,11 +24,14 @@ import tempfile
 import termios
 import time
 import unittest
+from collections.abc import Callable
 from unittest.mock import patch
 
 import tmux_version
 from tmux_paths import short_temporary_parent
 from tmux_workers import interrupt, record_server, run_workers
+
+RENDER_QUIET_SECONDS = 0.1
 
 
 def termux_tmux_never_renames() -> bool:
@@ -110,11 +113,13 @@ class Client:
         """Drain terminal output while answering Termnav's context query."""
         output = bytearray()
         deadline = time.monotonic() + duration
-        while time.monotonic() < deadline:
-            ready, _, _ = select.select([self.master], [], [], 0.02)
+        while (remaining := deadline - time.monotonic()) > 0:
+            ready, _, _ = select.select([self.master], [], [], min(0.02, remaining))
             if not ready:
                 continue
             payload = os.read(self.master, 65536)
+            if not payload:
+                raise EOFError("tmux client closed its terminal while receiving output")
             output.extend(payload)
             if b"\x1b[?996n" in payload:
                 os.write(self.master, b"\x1b[?997;1n")
@@ -147,7 +152,7 @@ class Client:
             if ready:
                 payload = os.read(self.master, 65536)
                 output.extend(payload)
-                quiet_deadline = time.monotonic() + 0.1
+                quiet_deadline = time.monotonic() + RENDER_QUIET_SECONDS
                 if b"\x1b[?996n" in payload:
                     os.write(self.master, b"\x1b[?997;1n")
                 continue
@@ -160,6 +165,33 @@ class Client:
         self.drain()
         self.test.tmux("refresh-client", "-t", self.tty)
         return self.pump_until_quiet("full tmux redraw")
+
+    def redraw_until(
+        self, matches: Callable[[bytes], bool], description: str, timeout: float = 4.0
+    ) -> bytes:
+        """Poll real output for a render matching the given condition."""
+        self.drain()
+        deadline = time.monotonic() + timeout
+        received = bytearray()
+        receiving = False
+        while (remaining := deadline - time.monotonic()) > 0:
+            if not receiving:
+                self.test.tmux("refresh-client", "-t", self.tty, timeout=remaining)
+            # A refresh can be silent, and a frame can arrive in pieces. Keep
+            # the bytes across requests and only evaluate a frame after a
+            # quiet window, when a later sequence cannot change its color.
+            sample_time = min(RENDER_QUIET_SECONDS, deadline - time.monotonic())
+            sample = self.pump(sample_time)
+            if sample:
+                received.extend(sample)
+                receiving = True
+                continue
+            if receiving and sample_time == RENDER_QUIET_SECONDS:
+                rendered = bytes(received)
+                if matches(rendered):
+                    return rendered
+            receiving = False
+        raise AssertionError(f"timed out waiting for {description}: {bytes(received)!r}")
 
     def redraw_until_background(
         self,
@@ -175,17 +207,10 @@ class Client:
         observable output with a bounded deadline instead of guessing how long
         that handoff needs.
         """
-        deadline = time.monotonic() + timeout
-        last_render = b""
-        last_background = None
-        while time.monotonic() < deadline:
-            last_render = self.redraw()
-            last_background = self.test.rendered_background(last_render)
-            if last_background == expected:
-                return last_render
-        raise AssertionError(
-            f"timed out waiting for {description}: "
-            f"expected {expected}, got {last_background}; {last_render!r}"
+        return self.redraw_until(
+            lambda rendered: self.test.rendered_background(rendered) == expected,
+            description,
+            timeout,
         )
 
     def settle(self, quiet: float = 0.2, timeout: float = 4.0) -> None:
@@ -538,14 +563,16 @@ class LeafStyleTest(unittest.TestCase):
             return False
         return str(self.socket) in result.stdout
 
-    def tmux(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def tmux(
+        self, *arguments: str, check: bool = True, timeout: float = 10
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["tmux", "-S", str(self.socket), *arguments],
             env=self.environment,
             text=True,
             capture_output=True,
             check=check,
-            timeout=10,
+            timeout=timeout,
         )
 
     def client_is_focused(self, tty: str) -> bool | None:
@@ -2547,21 +2574,18 @@ class LeafStyleTest(unittest.TestCase):
             "list-panes", "-a", "-F", "#{pane_id}:#{pane_in_mode}"
         ).stdout.splitlines()
         self.press(client, b"P")
-        seen = bytearray()
 
-        def picker_visible() -> bool:
-            # The second identical popup can be drawn as a terminal delta that
-            # omits unchanged prompt text. Ask the real client for a complete
-            # render rather than mistaking that optimization for an absent UI.
-            seen.extend(client.redraw())
-            return b"clip>" in seen
+        def wait_for_picker(description: str) -> None:
+            # The second identical popup may omit unchanged prompt text from
+            # its terminal delta. Request a complete render until it is seen.
+            try:
+                client.redraw_until(lambda rendered: b"clip>" in rendered, description)
+            except AssertionError as error:
+                raise AssertionError(
+                    f"{error}; messages={self.tmux('show-messages').stdout}"
+                ) from error
 
-        try:
-            wait_until(picker_visible, "real clipboard picker visible")
-        except AssertionError as error:
-            raise AssertionError(
-                f"{error}; client={bytes(seen)!r}; messages={self.tmux('show-messages').stdout}"
-            ) from error
+        wait_for_picker("real clipboard picker visible")
         client.send(b"\r")
         wait_until(
             lambda: received.exists() and b"\x1b[201~" in received.read_bytes(),
@@ -2587,13 +2611,7 @@ class LeafStyleTest(unittest.TestCase):
         client.pump_until_quiet("successful popup returns to its source pane")
         before = received.read_bytes()
         self.press(client, b"P")
-        seen.clear()
-        try:
-            wait_until(picker_visible, "second picker visible")
-        except AssertionError as error:
-            raise AssertionError(
-                f"{error}; client={bytes(seen)!r}; messages={self.tmux('show-messages').stdout}"
-            ) from error
+        wait_for_picker("second picker visible")
         client.send(b"\x1b")
         wait_until(lambda: picker_reaped(2), "cancelled popup process reaped")
         client.pump_until_quiet("cancelled popup returns to its source pane")
@@ -4049,6 +4067,60 @@ class LeafStyleTest(unittest.TestCase):
             self.rendered_background(restored_render),
             repr(restored_render),
         )
+
+
+class RedrawObservationTest(unittest.TestCase):
+    """Exercise bounded redraw polling through a private terminal stream."""
+
+    def setUp(self) -> None:
+        self.client = object.__new__(Client)
+        self.client.test = LeafStyleTest()
+        self.client.tty = "test-client"
+        self.client.master, self.writer = os.pipe()
+        self.addCleanup(os.close, self.writer)
+        self.addCleanup(os.close, self.client.master)
+
+    def test_silent_refresh_does_not_prevent_later_render(self) -> None:
+        pieces = iter((b"", b"\x1b[48;2;2;28", b";48m"))
+
+        def refresh(*_arguments: str, **_options: float) -> None:
+            os.write(self.writer, next(pieces, b""))
+
+        with patch.object(self.client.test, "tmux", side_effect=refresh) as request:
+            render = self.client.redraw_until_background((2, 28, 48), "delayed render")
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(render, b"\x1b[48;2;2;28;48m")
+
+    def test_render_waits_for_the_final_background_sequence(self) -> None:
+        expected = b"\x1b[48;2;2;28;48m"
+        later = b"\x1b[48;2;1;13;23m"
+        original_pump = self.client.pump
+        reads = 0
+
+        def refresh(*_arguments: str, **_options: float) -> None:
+            os.write(self.writer, expected)
+
+        def pump(duration: float) -> bytes:
+            nonlocal reads
+            reads += 1
+            if reads == 2:
+                os.write(self.writer, later)
+            return original_pump(duration)
+
+        with (
+            patch.object(self.client.test, "tmux", side_effect=refresh) as request,
+            patch.object(self.client, "pump", side_effect=pump),
+        ):
+            render = self.client.redraw_until_background((2, 28, 48), "render after settling")
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(render, expected + later + expected)
+
+    def test_persistent_silence_reports_the_observation_that_timed_out(self) -> None:
+        with (
+            patch.object(self.client.test, "tmux"),
+            self.assertRaisesRegex(AssertionError, r"timed out waiting for missing color: b''"),
+        ):
+            self.client.redraw_until_background((2, 28, 48), "missing color", timeout=0.06)
 
 
 def main() -> int:
