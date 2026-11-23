@@ -181,6 +181,52 @@ class WorkerTest(unittest.TestCase):
                         with contextlib.suppress(ProcessLookupError):
                             os.kill(int(pid), signal.SIGKILL)
 
+    def test_exited_worker_cannot_leave_a_same_group_child(self) -> None:
+        """The worker's status must remain available after its group is cleaned."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            record = root / "child.pid"
+            child = root / "owned-child.py"
+            child.write_text("import time\ntime.sleep(10)\n")
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    "import pathlib, subprocess, sys; "
+                    "child = subprocess.Popen([sys.executable, sys.argv[1]]); "
+                    "pathlib.Path(sys.argv[2]).write_text(str(child.pid)); "
+                    "raise SystemExit(7)"
+                ),
+                str(child),
+                str(record),
+            ]
+
+            def child_alive(pid: int) -> bool:
+                process = subprocess.run(
+                    ["ps", "-o", "args=", "-p", str(pid)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=2,
+                )
+                return str(child) in process.stdout
+
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(1, run_workers([command]))
+                pid = int(record.read_text())
+                deadline = time.monotonic() + 2
+                while child_alive(pid):
+                    if time.monotonic() >= deadline:
+                        self.fail(f"worker left its same-group child alive: {pid}")
+                    time.sleep(0.01)
+            finally:
+                if record.is_file():
+                    pid = int(record.read_text())
+                    if child_alive(pid):
+                        with contextlib.suppress(ProcessLookupError):
+                            os.kill(pid, signal.SIGKILL)
+
     def test_termination_unwinds_and_reaps_every_worker(self) -> None:
         for stop in (signal.SIGINT, signal.SIGTERM):
             with self.subTest(signal=stop), tempfile.TemporaryDirectory() as directory:
