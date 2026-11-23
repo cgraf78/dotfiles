@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-SOURCE_HOME=${DOT_TEST_SOURCE_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}
+SOURCE_HOME=${DOT_TEST_SOURCE_HOME:-$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}
 SSHN_SOURCE=$SOURCE_HOME/.config/shell/interactive.d/55-ssh.sh
 TEST_TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TEST_TMPDIR"' EXIT

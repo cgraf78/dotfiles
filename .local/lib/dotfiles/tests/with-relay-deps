@@ -33,7 +33,7 @@ case :$PATH: in
 esac
 shdeps_bin=$(command -v shdeps) || fail 'Shdeps is unavailable'
 
-root=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+root=$(CDPATH='' cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 manifest=$root/.config/shdeps/10-deps.conf
 conf=$(mktemp -d "${TMPDIR:-/tmp}/with-relay-deps.XXXXXXXX")
 socket=

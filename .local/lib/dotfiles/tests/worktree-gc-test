@@ -20,7 +20,7 @@ unset DOT_DOCTOR_GIT
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
 _test_prefer_system_git || exit 1
 
-ROOT=$(cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
+ROOT=$(CDPATH='' cd -P -- "${BASH_SOURCE[0]%/*}/../../../.." && pwd -P)
 GC=$ROOT/.local/bin/dot-worktree-gc
 
 # Fixture git operations must never execute ambient developer hooks:
