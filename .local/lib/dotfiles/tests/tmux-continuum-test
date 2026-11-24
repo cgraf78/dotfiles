@@ -11,6 +11,7 @@ set -euo pipefail
 
 # shellcheck source=helpers.sh
 . "${BASH_SOURCE[0]%/*}/helpers.sh"
+_test_prefer_system_git || exit 1
 
 tmux_config="$HOME/.config/tmux/conf.d/10-base.conf"
 shdeps_config="$HOME/.config/shdeps/10-deps.conf"
@@ -21,18 +22,20 @@ inventory_content=$(cat "$shellcheck_inventory")
 echo "=== tmux continuum provider boundary ==="
 
 tracked_provider_commands=""
+if ! provider_paths=$(_test_base_git "$HOME" ls-files -- \
+  .local/bin/tmux-continuum-default-server \
+  .local/bin/tmux-continuum-save-gate); then
+  _fail 'provider boundary: could not enumerate tracked tmux commands'
+  _test_summary
+fi
 while IFS= read -r provider_path; do
   # A deletion under test is still present in HEAD until the change is
   # committed. Count only tracked paths that exist in the tested worktree;
   # shdeps-managed untracked links in a real HOME remain valid consumers.
-  if [[ -e "$HOME/$provider_path" || -L "$HOME/$provider_path" ]]; then
+  if [[ -n "$provider_path" && (-e "$HOME/$provider_path" || -L "$HOME/$provider_path") ]]; then
     tracked_provider_commands+="${tracked_provider_commands:+$'\n'}$provider_path"
   fi
-done < <(
-  git -C "$HOME" ls-files -- \
-    .local/bin/tmux-continuum-default-server \
-    .local/bin/tmux-continuum-save-gate
-)
+done <<<"$provider_paths"
 _assert_eq "provider boundary: command implementations are not dotfiles-owned" \
   "" "$tracked_provider_commands"
 

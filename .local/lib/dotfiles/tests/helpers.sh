@@ -339,6 +339,18 @@ _test_prefer_system_git() {
   return 1
 }
 
+# Address the same base source in installed HOME and in an ordinary linked
+# worktree. Ownership fixtures can select a controlled Git for either form.
+_test_base_git() {
+  local source=$1
+  shift
+  if [[ -d "$source/.dotfiles" ]]; then
+    command git -C "$source" --git-dir="$source/.dotfiles" --work-tree="$source" "$@"
+  else
+    command git -C "$source" "$@"
+  fi
+}
+
 # Core/bootstrap suites need the current shdeps implementation, but sourcing a
 # development checkout lets its bootstrap pull and rebuild that shared checkout.
 # Copy only the sourceable surface and resolved binary into this suite's temp
