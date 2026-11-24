@@ -120,14 +120,14 @@ jobs:
           persist-credentials: false
 
       - name: Install profile test prerequisites
-        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@fa46009e947ced9ab40dfa59049ae2d725f97480
+        uses: cgraf78/actions/.github/actions/shell-ci-prereqs@7cc897229a80517e83f09acf989f2da5889961ad
         with:
           matrix-name: Ubuntu
           profiles: base,jq,python,zsh,lua,neovim,tmux-pinned,openssh-netcat-lsof,procps,cron,fd,ripgrep,shellcheck
           setup: none
 
       - name: Download pinned Neovim integration runtime
-        uses: cgraf78/actions/.github/actions/download-release-asset@fa46009e947ced9ab40dfa59049ae2d725f97480
+        uses: cgraf78/actions/.github/actions/download-release-asset@7cc897229a80517e83f09acf989f2da5889961ad
         with:
           repository: neovim/neovim
           tag: v0.12.2
@@ -149,7 +149,7 @@ jobs:
             "$install_root/bin/nvim" | sha256sum --check --strict
 
       - name: Download pinned yq integration runtime
-        uses: cgraf78/actions/.github/actions/download-release-asset@fa46009e947ced9ab40dfa59049ae2d725f97480
+        uses: cgraf78/actions/.github/actions/download-release-asset@7cc897229a80517e83f09acf989f2da5889961ad
         with:
           repository: mikefarah/yq
           tag: v4.53.6
