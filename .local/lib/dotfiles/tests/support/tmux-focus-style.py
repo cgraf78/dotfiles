@@ -218,14 +218,24 @@ class Client:
 
         def resize() -> None:
             nonlocal region
+            # Keep the current size as the target through an empty sample.
+            # Advancing while its render is pending can leave us perpetually
+            # one frame ahead of a slow client.
+            if region:
+                return
             columns, rows = os.get_terminal_size(self.master)
             rows += 1
             region = f"\x1b[1;{rows}r".encode("ascii")
             self.resize(rows, columns)
 
         def matches(rendered: bytes) -> bool:
+            nonlocal region
             _, marker, frame = rendered.rpartition(region)
-            return bool(marker) and self.test.rendered_background(frame) == expected
+            color = self.test.rendered_background(frame) if marker else None
+            if color is None:
+                return False
+            region = b""
+            return color == expected
 
         return self.redraw_until(matches, description, timeout, request_redraw=resize)
 
@@ -4156,6 +4166,34 @@ class RedrawObservationTest(unittest.TestCase):
             render = self.client.resize_until_background((2, 28, 48), "new terminal frame")
         self.assertEqual([args.args for args in request.call_args_list], [(25, 80), (26, 80)])
         self.assertTrue(render.endswith(b"\x1b[1;26r" + expected))
+
+    def test_resize_waits_for_the_outstanding_frame(self) -> None:
+        original_pump = self.client.pump
+        frame = b"\x1b[1;25r\x1b[48;2;2;28;48m"
+        reads = 0
+        terminal_rows = 24
+
+        def resize(rows: int, _columns: int) -> None:
+            nonlocal terminal_rows
+            terminal_rows = rows
+
+        def pump(duration: float) -> bytes:
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                return b""
+            if reads == 2:
+                os.write(self.writer, frame)
+            return original_pump(duration)
+
+        with (
+            patch.object(os, "get_terminal_size", side_effect=lambda _: (80, terminal_rows)),
+            patch.object(self.client, "resize", side_effect=resize) as request,
+            patch.object(self.client, "pump", side_effect=pump),
+        ):
+            render = self.client.resize_until_background((2, 28, 48), "delayed terminal frame")
+        request.assert_called_once_with(25, 80)
+        self.assertEqual(frame, render)
 
 
 def main() -> int:
