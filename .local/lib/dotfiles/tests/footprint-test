@@ -65,6 +65,10 @@ real_wc=$(type -P wc)
 wc_bin=$(_mock_bin)
 cat >"$wc_bin/wc" <<'SH'
 #!/usr/bin/env bash
+if [[ ${DOT_TEST_FIXTURE_WC_ERROR:-0} == 1 ]]; then
+  printf '%s\n' 'fixture byte count failed' >&2
+  exit 17
+fi
 bytes=$("$DOT_TEST_REAL_WC" "$@") || exit
 printf '    %s\n' "$bytes"
 SH
@@ -78,6 +82,15 @@ first=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \
 second=$(DOT_FOOTPRINT_NATIVE_ROOT=$native \
   "$measure" --phase fixture --profile base "$fixture")
 _assert_eq 'unchanged fixture measurement is deterministic' "$first" "$second"
+
+alternate_parent=$(_tmpdir)
+mkdir -- "$alternate_parent/${fixture##*/}"
+relative_measurement=$(
+  cd -- "${fixture%/*}" || exit 1
+  CDPATH="$alternate_parent" DOT_FOOTPRINT_NATIVE_ROOT=$native \
+    "$measure" --phase fixture --profile base "${fixture##*/}"
+)
+_assert_eq 'relative fixture paths ignore caller CDPATH' "$first" "$relative_measurement"
 
 _assert_contains 'measurement records format version' 'version=1' "$first"
 _assert_contains 'measurement records phase' 'phase=fixture' "$first"
@@ -107,5 +120,36 @@ _assert_eq 'measurement categories are sorted' \
 unmeasured=$("$measure" --phase fixture --profile editor "$fixture")
 _assert_contains 'unavailable native package payload is explicit' \
   $'native_packages\t0\tunmeasured' "$unmeasured"
+
+linked_fixture=$(_tmpdir)
+external=$(_tmpdir)
+mkdir -p "$linked_fixture/.local" "$external/nvim"
+_write_bytes "$external/nvim/data" 23
+ln -s "$external" "$linked_fixture/.local/share"
+linked_output=$("$measure" --phase fixture --profile editor "$linked_fixture")
+_assert_contains 'measurement stays under fixture HOME through intermediate directories' \
+  $'nvim\t0\tmeasured' "$linked_output"
+
+find_bin=$(_mock_bin)
+cat >"$find_bin/find" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 3
+printf '%s\n' 'fixture traversal failed' >&2
+exit 17
+SH
+chmod +x "$find_bin/find"
+find_status=0
+find_output=$(PATH="$find_bin:$PATH" "$measure" --phase fixture --profile base "$fixture" 2>&1) ||
+  find_status=$?
+_assert_exit 'a failed traversal rejects a partial footprint' 1 "$find_status"
+_assert_contains 'a failed traversal keeps its diagnostic' 'fixture traversal failed' "$find_output"
+_assert_not_contains 'a failed traversal emits no footprint' 'public_total' "$find_output"
+
+wc_status=0
+wc_output=$(DOT_TEST_FIXTURE_WC_ERROR=1 "$measure" --phase fixture --profile base "$fixture" 2>&1) ||
+  wc_status=$?
+_assert_exit 'a failed byte count rejects a partial footprint' 1 "$wc_status"
+_assert_contains 'a failed byte count keeps its diagnostic' 'fixture byte count failed' "$wc_output"
+_assert_not_contains 'a failed byte count emits no footprint' 'public_total' "$wc_output"
 
 _test_summary

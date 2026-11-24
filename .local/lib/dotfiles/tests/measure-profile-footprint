@@ -41,57 +41,63 @@ fixture_home=$1
     "$fixture_home" >&2
   exit 1
 }
-fixture_home=$(cd -P -- "$fixture_home" && pwd -P)
+fixture_home=$(CDPATH='' cd -P -- "$fixture_home" && pwd -P)
 [[ $fixture_home != / ]] || {
   printf 'measure-profile-footprint: refusing filesystem root\n' >&2
   exit 1
 }
 
 _bytes_for() {
-  local path bytes=0 size
-  for path in "$@"; do
+  local root=$1 relative parent path bytes=0 size count subtotal
+  shift
+  for relative in "$@"; do
+    # Find already skips symlinks in a walked tree, but its starting path
+    # would follow symlinks in any intermediate directory.
+    parent=$relative
+    while [[ $parent == */* ]]; do
+      parent=${parent%/*}
+      [[ ! -L $root/$parent ]] || continue 2
+    done
+    path=$root/$relative
     [[ -e $path || -L $path ]] || continue
     if [[ -f $path && ! -L $path ]]; then
-      size=$(LC_ALL=C wc -c <"$path")
-      bytes=$((bytes + size))
+      size=$(LC_ALL=C wc -c <"$path") || return 1
+      size=${size//[[:blank:]]/}
     elif [[ -d $path && ! -L $path ]]; then
-      while IFS= read -r size; do
-        [[ $size =~ ^[0-9]+$ ]] || continue
-        bytes=$((bytes + size))
-      done < <(find "$path" -type f -exec sh -c \
-        'for file do
-          LC_ALL=C wc -c <"$file" | tr -d "[:space:]"
-          printf "\n"
-        done' sh {} +)
+      # A failed traversal or byte count leaves a partial measurement.
+      # Keep both sides of this pipeline checked before recording a subtotal.
+      size=$(
+        find "$path" -type f -exec sh -c \
+          'for file do
+            LC_ALL=C wc -c <"$file" || exit 1
+          done' sh {} + |
+          (
+            subtotal=0
+            while IFS=$' \t' read -r count; do
+              [[ $count =~ ^[0-9]+$ ]] || exit 1
+              subtotal=$((subtotal + 10#$count))
+            done
+            printf '%s\n' "$subtotal"
+          )
+      ) || return 1
+    else
+      continue
     fi
+    [[ $size =~ ^[0-9]+$ ]] || return 1
+    bytes=$((bytes + 10#$size))
   done
   printf '%s\n' "$bytes"
 }
 
-git_checkout_config=$(_bytes_for \
-  "$fixture_home/.dotfiles" \
-  "$fixture_home/.dotfiles-nvim" \
-  "$fixture_home/.dotfiles-dev" \
-  "$fixture_home/.config")
-user_managed=$(_bytes_for \
-  "$fixture_home/.local/bin" \
-  "$fixture_home/.local/share/cgraf78" \
-  "$fixture_home/.local/share/shdeps")
-nvim=$(_bytes_for \
-  "$fixture_home/.local/share/neovim" \
-  "$fixture_home/.local/share/nvim" \
-  "$fixture_home/.local/state/nvim" \
-  "$fixture_home/.cache/nvim")
-mise=$(_bytes_for "$fixture_home/.local/share/mise")
-language_caches=$(_bytes_for \
-  "$fixture_home/.cargo" \
-  "$fixture_home/.rustup" \
-  "$fixture_home/go/pkg" \
-  "$fixture_home/.npm" \
-  "$fixture_home/.cache/uv")
-optional_private_overlays=$(_bytes_for \
-  "$fixture_home/.dotfiles-personal" \
-  "$fixture_home/.dotfiles-work")
+git_checkout_config=$(_bytes_for "$fixture_home" \
+  .dotfiles .dotfiles-nvim .dotfiles-dev .config)
+user_managed=$(_bytes_for "$fixture_home" \
+  .local/bin .local/share/cgraf78 .local/share/shdeps)
+nvim=$(_bytes_for "$fixture_home" \
+  .local/share/neovim .local/share/nvim .local/state/nvim .cache/nvim)
+mise=$(_bytes_for "$fixture_home" .local/share/mise)
+language_caches=$(_bytes_for "$fixture_home" .cargo .rustup go/pkg .npm .cache/uv)
+optional_private_overlays=$(_bytes_for "$fixture_home" .dotfiles-personal .dotfiles-work)
 
 native_packages=0
 native_status=unmeasured
@@ -101,7 +107,8 @@ if [[ -n ${DOT_FOOTPRINT_NATIVE_ROOT:-} ]]; then
       "$DOT_FOOTPRINT_NATIVE_ROOT" >&2
     exit 1
   }
-  native_packages=$(_bytes_for "$DOT_FOOTPRINT_NATIVE_ROOT")
+  native_root=$(CDPATH='' cd -P -- "$DOT_FOOTPRINT_NATIVE_ROOT" && pwd -P)
+  native_packages=$(_bytes_for "$native_root" .)
   native_status=measured
 fi
 
