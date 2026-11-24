@@ -2,10 +2,8 @@
 # dot-runtime-resolve-test - offline unit coverage for the release resolver.
 #
 # Every assertion here runs without network: platform mapping, tag grammar,
-# version-line parsing, and a file:// fixture tree standing in for the
-# release host. The single live redirect probe (`/releases/latest` ->
-# effective URL) cannot run offline and was verified against real GitHub
-# instead; see the owning commit message.
+# version-line parsing, a local stand-in for the latest release redirect,
+# and a file:// fixture tree standing in for the release host.
 
 set -u
 
@@ -95,20 +93,42 @@ for bad_tag in '' 'releases' 'v1.2.3' '20260914-103531-41E0DCD5' \
     _pass "invalid tag is rejected: ${bad_tag:-<empty>}"
   fi
 done
-_assert_eq 'effective URL yields its tag' "$good_tag" \
-  "$(_dot_release_tag_from_effective_url \
-    "https://github.com/cgraf78/dot/releases/tag/$good_tag")"
-if _dot_release_tag_from_effective_url \
-  'https://github.com/cgraf78/dot/releases' >/dev/null 2>&1; then
+latest_for() (
+  local http_status=$1 effective_url=$2
+  shift 2
+  # shellcheck disable=SC2329 # The latest-release resolver calls this seam.
+  curl() {
+    case " $* " in
+      *' %{http_code} %{url_effective} '*) printf '%s %s' "$http_status" "$effective_url" ;;
+      *) return 97 ;;
+    esac
+  }
+  _dot_release_latest_tag "$@"
+)
+
+_assert_eq 'default release repository yields its tag' "$good_tag" \
+  "$(latest_for 200 "https://github.com/cgraf78/dot/releases/tag/$good_tag")"
+_assert_eq 'explicit release repository yields its tag' "$good_tag" \
+  "$(latest_for 200 "https://github.com/fixture/project/releases/tag/$good_tag" fixture/project)"
+if latest_for 200 'https://github.com/cgraf78/dot/releases' >/dev/null 2>&1; then
   _fail 'empty release list fails closed'
 else
   _pass 'empty release list fails closed'
 fi
-if _dot_release_tag_from_effective_url \
-  'https://github.com/cgraf78/dot/releases/tag/v9' >/dev/null 2>&1; then
+if latest_for 200 'https://github.com/cgraf78/dot/releases/tag/v9' >/dev/null 2>&1; then
   _fail 'unexpected redirect target fails closed'
 else
   _pass 'unexpected redirect target fails closed'
+fi
+if latest_for 200 "https://github.com/fixture/project/releases/tag/$good_tag" >/dev/null 2>&1; then
+  _fail 'latest redirect to a different repository fails closed'
+else
+  _pass 'latest redirect to a different repository fails closed'
+fi
+if latest_for 429 "https://github.com/cgraf78/dot/releases/tag/$good_tag" >/dev/null 2>&1; then
+  _fail 'latest redirect with terminal HTTP 429 fails closed'
+else
+  _pass 'latest redirect with terminal HTTP 429 fails closed'
 fi
 
 echo ""

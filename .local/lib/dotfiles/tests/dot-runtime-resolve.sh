@@ -78,47 +78,12 @@ _dot_release_tag_valid() {
   [[ ${1:-} =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ]]
 }
 
-# Extract the release tag from a curl effective URL. /releases/latest follows
-# its redirect to /releases/tag/<tag>; a repository with no releases lands on
-# /releases instead, which is a distinct fail-closed error, not a tag.
-_dot_release_tag_from_effective_url() {
-  local url=${1:-} tag=${1##*/}
-  if [[ $url == */releases && $tag == releases ]]; then
-    printf 'dot-runtime-resolve: repository has no releases yet: %s\n' \
-      "$url" >&2
-    return 1
-  fi
-  _dot_release_tag_valid "$tag" || {
-    printf 'dot-runtime-resolve: unexpected release redirect: %s\n' \
-      "$url" >&2
-    return 1
-  }
-  printf '%s\n' "$tag"
-}
-
-# Resolve the latest release tag for owner/repo $1 (default cgraf78/dot) via
-# the anonymous web redirect. Keeping tag discovery on the public web URL
-# leaves the REST credential for the exact release assets.
-_dot_release_latest_tag() {
-  local repo=${1:-cgraf78/dot} effective rc=0
-  case $repo in
-    *[!A-Za-z0-9._/-]* | */*/* | /* | */ | *..*)
-      printf 'dot-runtime-resolve: invalid release repository: %s\n' \
-        "$repo" >&2
-      return 1
-      ;;
-  esac
-  effective=$(curl -q -fsSIL -o /dev/null -w '%{url_effective}' \
-    --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 30 \
-    --retry 2 --retry-delay 2 --retry-max-time 65 --retry-all-errors \
-    "https://github.com/$repo/releases/latest") || rc=$?
-  [[ $rc -eq 0 ]] || {
-    printf 'dot-runtime-resolve: could not resolve latest release for %s (curl exit %s)\n' \
-      "$repo" "$rc" >&2
-    return 1
-  }
-  _dot_release_tag_from_effective_url "$effective"
-}
+# Use the lock-checked capability harness for the anonymous latest lookup.
+_dot_release_latest_tag() (
+  # shellcheck source=capability-harness/dot-release.sh
+  . "${BASH_SOURCE[0]%/*}/capability-harness/dot-release.sh" || return
+  capability_dot_release_latest_tag "${1:-cgraf78/dot}"
+)
 
 # Print the full commit SHA a release tag points at. The shared scheme tags
 # the commit directly (lightweight), but an annotated tag would answer with
