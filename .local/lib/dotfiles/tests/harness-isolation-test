@@ -87,6 +87,43 @@ _assert_eq "host runtime: cache stays suite-local" \
 _assert_eq "host runtime: state stays suite-local" \
   "/suite/state" "$(sed -n '4p' <<<"$runtime_paths")"
 
+echo "=== Ownership inventory failures ==="
+
+_test_prefer_system_git || exit 1
+ownership_real_git=$(type -P git)
+ownership_mock_bin=$(_mock_bin)
+ownership_fault_marker=$(_tmpfile)
+cat >"$ownership_mock_bin/git" <<'GIT'
+#!/usr/bin/env bash
+for argument; do
+  if [[ "$argument" == ls-files ]]; then
+    # Some index reads can produce a plausible inventory before failing.
+    "$OWNERSHIP_TEST_REAL_GIT" "$@" || exit "$?"
+    printf 'injected\n' >"$OWNERSHIP_TEST_FAULT_MARKER"
+    exit 17
+  fi
+done
+exec "$OWNERSHIP_TEST_REAL_GIT" "$@"
+GIT
+chmod +x "$ownership_mock_bin/git"
+for ownership_suite in base-profile-boundary shdeps-hooks tmux-continuum; do
+  : >"$ownership_fault_marker"
+  ownership_status=0
+  ownership_output=$(
+    # Report the nested suite only through the assertions below.
+    unset DOT_TEST_REPORTER
+    PATH="$ownership_mock_bin:$PATH" DOT_TEST_SYSTEM_GIT="$ownership_mock_bin/git" \
+      OWNERSHIP_TEST_REAL_GIT="$ownership_real_git" \
+      OWNERSHIP_TEST_FAULT_MARKER="$ownership_fault_marker" \
+      bash "$SOURCE_HOME/.local/lib/dotfiles/tests/$ownership_suite-test" 2>&1
+  ) || ownership_status=$?
+  _assert_exit "ownership inventory: $ownership_suite fails on incomplete Git output" 1 "$ownership_status"
+  _assert_eq "ownership inventory: $ownership_suite reached an injected failure" \
+    injected "$(<"$ownership_fault_marker")"
+  _assert_contains "ownership inventory: $ownership_suite reports the failed scan" \
+    'could not enumerate tracked' "$ownership_output"
+done
+
 echo ""
 echo "=== Temporary root cleanup ==="
 

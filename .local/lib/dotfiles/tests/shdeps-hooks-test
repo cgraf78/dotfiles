@@ -10,23 +10,17 @@ export NO_COLOR=1
 REAL_HOME=$HOME
 _test_prefer_system_git || exit 1
 
-_base_source_git() {
-  if [[ -d $REAL_HOME/.dotfiles ]]; then
-    command git -C "$REAL_HOME" --git-dir="$REAL_HOME/.dotfiles" \
-      --work-tree="$REAL_HOME" "$@"
-  else
-    command git -C "$REAL_HOME" "$@"
-  fi
-}
-
 echo "=== base Shdeps ownership ==="
 
-_base_hook_names=$(_base_source_git ls-files '.config/shdeps/hooks.d/*.sh' \
-  '.config/shdeps/hooks.d/**/*.sh' |
-  sed -e 's#^\.config/shdeps/hooks.d/##' -e 's#\.sh$##' |
-  LC_ALL=C sort)
-for _base_hook in cgraf78/dot eza nerd-fonts rcaloras/bash-preexec \
-  tmux tmux-plugins/tmux-resurrect wezterm xclip; do
+if ! _base_hook_paths=$(_test_base_git "$REAL_HOME" ls-files -- \
+  '.config/shdeps/hooks.d/*.sh' '.config/shdeps/hooks.d/**/*.sh'); then
+  _fail 'Shdeps: could not enumerate tracked custom hooks'
+  _test_summary
+fi
+_base_hook_names=$(sed -e 's#^\.config/shdeps/hooks.d/##' -e 's#\.sh$##' <<<"$_base_hook_paths")
+_expected_base_hooks=(cgraf78/dot eza nerd-fonts rcaloras/bash-preexec
+  tmux tmux-plugins/tmux-resurrect wezterm xclip)
+for _base_hook in "${_expected_base_hooks[@]}"; do
   if grep -Fxq "$_base_hook" <<<"$_base_hook_names"; then
     _pass "Shdeps: base custom hook is retained: $_base_hook"
   else
@@ -35,17 +29,12 @@ for _base_hook in cgraf78/dot eza nerd-fonts rcaloras/bash-preexec \
 done
 
 # The aggregation repository owns only base custom hooks.
-while IFS= read -r _hook_path; do
-  _base_hook=${_hook_path#.config/shdeps/hooks.d/}
-  _base_hook=${_base_hook%.sh}
-  if grep -Fxq "$_base_hook" <<<"$(printf '%s\n' cgraf78/dot eza nerd-fonts \
-    rcaloras/bash-preexec tmux tmux-plugins/tmux-resurrect wezterm xclip)"; then
-    continue
-  else
+_expected_base_names=$(printf '%s\n' "${_expected_base_hooks[@]}")
+while IFS= read -r _base_hook; do
+  if [[ -n "$_base_hook" ]] && ! grep -Fxq "$_base_hook" <<<"$_expected_base_names"; then
     _fail "Shdeps: capability hook is absent from base: $_base_hook"
   fi
-done < <(_base_source_git ls-files '.config/shdeps/hooks.d/*.sh' \
-  '.config/shdeps/hooks.d/**/*.sh')
+done <<<"$_base_hook_names"
 
 for _base_dependency in cgraf78/agent-rules-sync cgraf78/dot cgraf78/ds \
   cgraf78/ettun cgraf78/fwdports cgraf78/sysup cgraf78/termnav \

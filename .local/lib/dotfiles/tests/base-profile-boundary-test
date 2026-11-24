@@ -23,19 +23,11 @@ _assert_policy_invalid() {
   fi
 }
 
-_base_tracked_paths() {
-  if [[ -e $source_home/.git || -L $source_home/.git ]]; then
-    git -C "$source_home" ls-files -- "$@"
-  else
-    git --git-dir="$source_home/.dotfiles" --work-tree="$source_home" \
-      ls-files -- "$@"
-  fi
-}
-
 _assert_base_unowned() {
   local description=$1 path=$2 tracked
-  tracked=$(_base_tracked_paths "$path")
-  if [[ -z $tracked ]]; then
+  if ! tracked=$(_test_base_git "$source_home" ls-files -- "$path"); then
+    _fail "$description (could not enumerate tracked paths: $path)"
+  elif [[ -z $tracked ]]; then
     _pass "$description"
   else
     _fail "$description (unexpected base-owned path: $tracked)"
@@ -95,12 +87,21 @@ _assert_eq 'ownership policy notes are never owned pathspecs' \
   $'one\t.config/dot/config' "$(dot_profile_ownership_owned "$noted_policy" base)"
 
 forbidden_pathspecs=()
-while IFS= read -r pathspec; do
-  forbidden_pathspecs[${#forbidden_pathspecs[@]}]=$pathspec
-done < <(dot_profile_ownership_forbidden "$ownership_policy" base)
-base_ownership_violations=$(_base_tracked_paths "${forbidden_pathspecs[@]}")
-_assert_eq 'base excludes editor-, dev-, and local-owned namespaces' \
-  '' "$base_ownership_violations"
+if ! forbidden_paths=$(dot_profile_ownership_forbidden "$ownership_policy" base); then
+  _fail 'base could not read forbidden paths from ownership policy'
+else
+  while IFS= read -r pathspec; do
+    [[ -z "$pathspec" ]] || forbidden_pathspecs+=("$pathspec")
+  done <<<"$forbidden_paths"
+  base_ownership_violations=''
+  if [[ -n "$forbidden_paths" ]] &&
+    ! base_ownership_violations=$(_test_base_git "$source_home" ls-files -- "${forbidden_pathspecs[@]}"); then
+    _fail 'base could not enumerate tracked ownership paths'
+  else
+    _assert_eq 'base excludes editor-, dev-, and local-owned namespaces' \
+      '' "$base_ownership_violations"
+  fi
+fi
 
 deps=$source_home/.config/shdeps/10-deps.conf
 _assert_contains 'base dependencies retain agent-rules-sync' \
