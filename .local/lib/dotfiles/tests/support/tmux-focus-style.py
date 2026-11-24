@@ -167,7 +167,12 @@ class Client:
         return self.pump_until_quiet("full tmux redraw")
 
     def redraw_until(
-        self, matches: Callable[[bytes], bool], description: str, timeout: float = 4.0
+        self,
+        matches: Callable[[bytes], bool],
+        description: str,
+        timeout: float = 4.0,
+        *,
+        request_redraw: Callable[[], None] | None = None,
     ) -> bytes:
         """Poll real output for a render matching the given condition."""
         self.drain()
@@ -176,7 +181,10 @@ class Client:
         receiving = False
         while (remaining := deadline - time.monotonic()) > 0:
             if not receiving:
-                self.test.tmux("refresh-client", "-t", self.tty, timeout=remaining)
+                if request_redraw is None:
+                    self.test.tmux("refresh-client", "-t", self.tty, timeout=remaining)
+                else:
+                    request_redraw()
             # A refresh can be silent, and a frame can arrive in pieces. Keep
             # the bytes across requests and only evaluate a frame after a
             # quiet window, when a later sequence cannot change its color.
@@ -193,25 +201,43 @@ class Client:
             receiving = False
         raise AssertionError(f"timed out waiting for {description}: {bytes(received)!r}")
 
-    def redraw_until_background(
+    def resize_until_background(
         self,
         expected: tuple[int, int, int],
         description: str,
         timeout: float = 2.0,
     ) -> bytes:
-        """Request full redraws until the pane body reaches the expected color.
+        """Observe the expected pane color in a newly sized terminal.
 
-        tmux can acknowledge the option update before its client renderer has
-        consumed the new pane style. A single explicit refresh may therefore
-        still paint the previous style on a busy host. Poll the terminal's
-        observable output with a bounded deadline instead of guessing how long
-        that handoff needs.
+        A refresh request can be acknowledged without a new terminal frame.
+        Resizing invalidates tmux's cached terminal state. For this xterm
+        client, the new full-height scroll region identifies bytes produced
+        after that invalidation, even when old paint was still queued.
         """
-        return self.redraw_until(
-            lambda rendered: self.test.rendered_background(rendered) == expected,
-            description,
-            timeout,
-        )
+        region = b""
+
+        def resize() -> None:
+            nonlocal region
+            # Keep the current size as the target through an empty sample.
+            # Advancing while its render is pending can leave us perpetually
+            # one frame ahead of a slow client.
+            if region:
+                return
+            columns, rows = os.get_terminal_size(self.master)
+            rows += 1
+            region = f"\x1b[1;{rows}r".encode("ascii")
+            self.resize(rows, columns)
+
+        def matches(rendered: bytes) -> bool:
+            nonlocal region
+            _, marker, frame = rendered.rpartition(region)
+            color = self.test.rendered_background(frame) if marker else None
+            if color is None:
+                return False
+            region = b""
+            return color == expected
+
+        return self.redraw_until(matches, description, timeout, request_redraw=resize)
 
     def settle(self, quiet: float = 0.2, timeout: float = 4.0) -> None:
         """Read this terminal until tmux has stopped writing to it."""
@@ -4001,7 +4027,7 @@ class LeafStyleTest(unittest.TestCase):
         # so the captured SGR color is the pane body tmux actually painted.
         self.tmux("kill-pane", "-t", self.inactive)
         self.tmux("set-option", "-g", "status", "off")
-        client = Client(self)
+        client = Client(self, size=(24, 80))
         self.clients.append(client)
         client.set_focus(True)
         # The focus hook is asynchronous. Reconcile explicitly before reading
@@ -4009,7 +4035,7 @@ class LeafStyleTest(unittest.TestCase):
         # the client flag transition and the publisher's pane update.
         self.sync_client(client)
 
-        leaf_render = client.redraw_until_background(
+        leaf_render = client.resize_until_background(
             (2, 28, 48),
             "focused leaf background",
         )
@@ -4021,10 +4047,9 @@ class LeafStyleTest(unittest.TestCase):
 
         client.set_focus(False)
         self.sync_client(client)
-        # set_focus() drains the asynchronous hook repaint while waiting for
-        # the authoritative client flag to settle. Request a deterministic
-        # redraw here rather than depending on a second, optional repaint.
-        blurred_render = client.redraw_until_background(
+        # set_focus() drains the hook repaint while waiting for the focus
+        # flag. Observe a new size so that paint cannot satisfy this check.
+        blurred_render = client.resize_until_background(
             (1, 13, 23),
             "unfocused leaf background",
         )
@@ -4036,7 +4061,7 @@ class LeafStyleTest(unittest.TestCase):
 
         client.set_focus(True)
         self.sync_client(client)
-        refocused_render = client.redraw_until_background(
+        refocused_render = client.resize_until_background(
             (2, 28, 48),
             "refocused leaf background",
         )
@@ -4047,7 +4072,7 @@ class LeafStyleTest(unittest.TestCase):
         )
 
         self.claim_child()
-        container_render = client.redraw_until_background(
+        container_render = client.resize_until_background(
             (1, 13, 23),
             "focused child container background",
         )
@@ -4058,7 +4083,7 @@ class LeafStyleTest(unittest.TestCase):
         )
 
         self.release_child()
-        restored_render = client.redraw_until_background(
+        restored_render = client.resize_until_background(
             (2, 28, 48),
             "released child background",
         )
@@ -4080,6 +4105,10 @@ class RedrawObservationTest(unittest.TestCase):
         self.addCleanup(os.close, self.writer)
         self.addCleanup(os.close, self.client.master)
 
+    def is_focused_color(self, rendered: bytes) -> bool:
+        """Recognize the final background used by the synthetic frames."""
+        return self.client.test.rendered_background(rendered) == (2, 28, 48)
+
     def test_silent_refresh_does_not_prevent_later_render(self) -> None:
         pieces = iter((b"", b"\x1b[48;2;2;28", b";48m"))
 
@@ -4087,7 +4116,7 @@ class RedrawObservationTest(unittest.TestCase):
             os.write(self.writer, next(pieces, b""))
 
         with patch.object(self.client.test, "tmux", side_effect=refresh) as request:
-            render = self.client.redraw_until_background((2, 28, 48), "delayed render")
+            render = self.client.redraw_until(self.is_focused_color, "delayed render")
         self.assertEqual(request.call_count, 3)
         self.assertEqual(render, b"\x1b[48;2;2;28;48m")
 
@@ -4111,7 +4140,7 @@ class RedrawObservationTest(unittest.TestCase):
             patch.object(self.client.test, "tmux", side_effect=refresh) as request,
             patch.object(self.client, "pump", side_effect=pump),
         ):
-            render = self.client.redraw_until_background((2, 28, 48), "render after settling")
+            render = self.client.redraw_until(self.is_focused_color, "render after settling")
         self.assertEqual(request.call_count, 2)
         self.assertEqual(render, expected + later + expected)
 
@@ -4120,7 +4149,51 @@ class RedrawObservationTest(unittest.TestCase):
             patch.object(self.client.test, "tmux"),
             self.assertRaisesRegex(AssertionError, r"timed out waiting for missing color: b''"),
         ):
-            self.client.redraw_until_background((2, 28, 48), "missing color", timeout=0.06)
+            self.client.redraw_until(self.is_focused_color, "missing color", timeout=0.06)
+
+    def test_resize_requires_new_terminal_size_before_color(self) -> None:
+        expected = b"\x1b[48;2;2;28;48m"
+        inactive = b"\x1b[48;2;1;13;23m"
+        frames = iter((expected + b"\x1b[1;25r" + inactive, b"\x1b[1;26r" + expected))
+
+        def resize(_rows: int, _columns: int) -> None:
+            os.write(self.writer, next(frames))
+
+        with (
+            patch.object(os, "get_terminal_size", side_effect=[(80, 24), (80, 25)]),
+            patch.object(self.client, "resize", side_effect=resize) as request,
+        ):
+            render = self.client.resize_until_background((2, 28, 48), "new terminal frame")
+        self.assertEqual([args.args for args in request.call_args_list], [(25, 80), (26, 80)])
+        self.assertTrue(render.endswith(b"\x1b[1;26r" + expected))
+
+    def test_resize_waits_for_the_outstanding_frame(self) -> None:
+        original_pump = self.client.pump
+        frame = b"\x1b[1;25r\x1b[48;2;2;28;48m"
+        reads = 0
+        terminal_rows = 24
+
+        def resize(rows: int, _columns: int) -> None:
+            nonlocal terminal_rows
+            terminal_rows = rows
+
+        def pump(duration: float) -> bytes:
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                return b""
+            if reads == 2:
+                os.write(self.writer, frame)
+            return original_pump(duration)
+
+        with (
+            patch.object(os, "get_terminal_size", side_effect=lambda _: (80, terminal_rows)),
+            patch.object(self.client, "resize", side_effect=resize) as request,
+            patch.object(self.client, "pump", side_effect=pump),
+        ):
+            render = self.client.resize_until_background((2, 28, 48), "delayed terminal frame")
+        request.assert_called_once_with(25, 80)
+        self.assertEqual(frame, render)
 
 
 def main() -> int:
