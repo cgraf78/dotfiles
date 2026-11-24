@@ -44,11 +44,12 @@ client_active_overlay_records=()
 # authority with local, no-network clones so the test exercises the same
 # symlink validation as production without executing hooks against live state.
 _client_extension_fixture() {
+  local source_home=$1 fixture_home=$2
   local source_client=$source_home/.local/lib/dotfiles
   local conf name url source_overlay fixture_overlay extension_dir
   local link source_link source_resolved fixture_resolved target rel authority
   local authority_name authority_source authority_fixture source_overlay_home
-  local fixture_overlay_home owner manifest fixture_conf optional
+  local fixture_overlay_home owner manifest fixture_conf optional link_inventory
   local -a authorities=()
 
   mkdir -p "$fixture_home/.local/lib/dotfiles" "$fixture_home/.config/git"
@@ -87,6 +88,9 @@ _client_extension_fixture() {
     )
   done
 
+  # Recreate authority only after a successful complete scan of the fixture.
+  link_inventory=$(_tmpfile) || return 1
+  find "$fixture_home/.local/lib/dotfiles" -type l -print0 >"$link_inventory" || return 1
   manifest=$fixture_home/.local/state/dot/overlay-links
   mkdir -p "${manifest%/*}" || return 1
   : >"$manifest" || return 1
@@ -116,7 +120,7 @@ _client_extension_fixture() {
     target=$(readlink "$link") || return 1
     rel=${link#"$fixture_home"/}
     printf '%s\t%s\t%s\n' "$rel" "$owner" "$target" >>"$manifest" || return 1
-  done < <(find "$fixture_home/.local/lib/dotfiles" -type l -print0)
+  done <"$link_inventory"
 
   # Always exercise an overlay-owned extension, including in public CI where
   # optional private overlays are intentionally unavailable. This prevents a
@@ -145,7 +149,27 @@ HOOK
   )
 }
 
-if ! _client_extension_fixture; then
+_client_extension_inventory_failure() (
+  local inventory_source inventory_home
+  inventory_source=$(_tmpdir) || exit 1
+  inventory_home=$(_tmpdir) || exit 1
+  mkdir -p "$inventory_source/.local/lib/dotfiles/"{merge-hooks.d,doctor.d,pre-sync.d} \
+    "$inventory_home/.config/dot/overlays.d" || exit 1
+  : >"$inventory_source/.local/lib/dotfiles/shell-grok-rc.sh" || exit 1
+  find() {
+    printf '%s\n' 'fixture symlink inventory failure' >&2
+    return 17
+  }
+  _client_extension_fixture "$inventory_source" "$inventory_home"
+)
+
+inventory_rc=0
+inventory_output=$(_client_extension_inventory_failure 2>&1) || inventory_rc=$?
+_assert_exit 'client extensions: a failed symlink inventory rejects the fixture' 1 "$inventory_rc"
+_assert_contains 'client extensions: reports the symlink inventory failure' \
+  'fixture symlink inventory failure' "$inventory_output"
+
+if ! _client_extension_fixture "$source_home" "$fixture_home"; then
   _fail 'client extensions: isolated composed authority is available'
   _test_summary
 fi
