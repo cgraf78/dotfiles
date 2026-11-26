@@ -82,7 +82,7 @@ Base also owns:
   Neovim, fzf, and nested terminal apps, switches tmux windows when the
   current tmux layer owns the chord, and sends one-window boundaries through
   Termnav's native one-shot router with exact client identity.
-- Ctrl-h/j/k/l, Alt-Shift-H/J/K/L, and Ctrl-backslash pane navigation, with
+- Ctrl-h/j/k/l pane selection and Alt-Shift-H/J/K/L pane movement, with
   the same ownership rules (described below).
 - Ctrl-click routing, which delegates to `termnav tmux follow-click`: URLs
   open in the browser on the desktop running the terminal, and file paths open
@@ -465,7 +465,7 @@ run-shell job, which reads tmux's global environment rather than shell
 startup files, so loading the config publishes the value shell startup
 (env.d) chooses there.
 
-The Ctrl-h/j/k/l, Alt-Shift-H/J/K/L, Ctrl-backslash, and Ctrl-Tab bindings
+The Ctrl-h/j/k/l, Alt-Shift-H/J/K/L, and Ctrl-Tab bindings
 described below live in `10-base.conf` beside the ancestor relay keys
 (`User8`-`User13`) they depend on.
 
@@ -490,14 +490,9 @@ Neovim split or tmux pane one directional step. Termnav owns the guarded tmux
 swap and may walk arbitrary same-host tmux ancestry, but it never relays pane
 movement across SSH or hands it to an outer terminal layout.
 
-Ctrl-backslash is the local previous-pane companion to directional navigation.
-It follows the same inward ownership test, so Neovim can choose its previous
-split and a focused nested tmux can choose its own previous pane. A bare pane is
-handled by the nearest tmux with `select-pane -l`. It deliberately does not use
-the boundary router: “previous” is history belonging to one tmux or editor
-scope, and choosing an ancestor's history would be ambiguous in nested or
-shared-client topologies. Neovim terminal mode keeps Ctrl-backslash available
-as the first half of its native Ctrl-backslash, Ctrl-N escape sequence.
+Ctrl-backslash goes directly to the foreground application. Config reloads
+clear the old root binding, so Herdr's `hc attach` can use it to detach while
+leaving the process running. Neovim retains its own handling of the key.
 
 Ctrl-Tab bindings share pane-navigation's focus ownership. Forward the key into
 Neovim/fzf when those programs own the pane, and through interactive remote

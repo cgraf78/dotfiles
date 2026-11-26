@@ -15,6 +15,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -168,17 +169,17 @@ class Client:
 
 
 class NavigationTest(unittest.TestCase):
-    """Check Ctrl-backslash dispatch in an isolated real tmux client."""
+    """Check which layer receives navigation keys through real PTYs."""
 
     config: pathlib.Path
-    # A forwarded Ctrl-backslash without a binding must not kill a fixture
-    # pane via VQUIT and make tmux appear to switch to the previous pane.
+    # Keep the sibling pane alive even if a bad route sends it a VQUIT.
     idle_pane = "trap '' QUIT; exec sleep 30"
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(
             prefix="dot-navigation-", dir=short_temporary_parent()
         )
+        self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
         self.socket = self.root / "tmux socket.sock"
         self.environment = os.environ.copy()
@@ -192,24 +193,21 @@ class NavigationTest(unittest.TestCase):
         self.environment["XDG_RUNTIME_DIR"] = str(self.root)
         self.tmux(
             "-f",
-            str(self.config),
+            "/dev/null",
             "new-session",
             "-d",
             "-s",
             "navigation",
             self.idle_pane,
         )
+        self.addCleanup(self.tmux, "kill-server", check=False)
+        self.tmux("source-file", str(self.config), check=False)
         self.active = self.active_pane()
         self.inactive = self.tmux(
             "split-window", "-d", "-P", "-F", "#{pane_id}", self.idle_pane
         ).stdout.strip()
-        self.clients: list[Client] = []
-
-    def tearDown(self) -> None:
-        for client in reversed(self.clients):
-            client.close()
-        self.tmux("kill-server", check=False)
-        self.temporary.cleanup()
+        self.assertRegex(self.active, r"^%\d+$")
+        self.assertRegex(self.inactive, r"^%\d+$")
 
     def tmux(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return run_tmux(self.socket, self.environment, arguments, check)
@@ -228,18 +226,33 @@ class NavigationTest(unittest.TestCase):
         completed = run_tmux(target, self.environment, ("display-message", "-p", "#{pane_id}"))
         return completed.stdout.strip()
 
-    def test_ctrl_backslash_selects_the_local_previous_pane(self) -> None:
+    @staticmethod
+    def input_reader(log: pathlib.Path) -> str:
+        """Record foreground input as bytes without converting Ctrl-backslash to VQUIT."""
+        reader = """\
+import os, sys, tty
+tty.setraw(0)
+with open(sys.argv[1], "wb", buffering=0) as log:
+    while data := os.read(0, 4096):
+        log.write(data)
+"""
+        return "exec " + shlex.join([sys.executable, "-c", reader, str(log)])
+
+    def test_ctrl_backslash_reaches_the_active_pane(self) -> None:
+        log = self.root / "input"
+        self.tmux("respawn-pane", "-k", "-t", self.inactive, self.input_reader(log))
+        wait_until(log.exists, "local pane ready for raw input")
         client = Client(self)
-        self.clients.append(client)
+        self.addCleanup(client.close)
         client.set_focus(True)
         self.tmux("select-pane", "-t", self.active)
         self.tmux("select-pane", "-t", self.inactive)
         self.assertEqual(self.inactive, self.active_pane())
         client.send(b"\x1c")
-        wait_until(
-            lambda: self.active_pane() == self.active,
-            "Ctrl-backslash pane selection",
-        )
+        wait_until(lambda: b"\x1c" in log.read_bytes(), "Ctrl-backslash in the active pane")
+        self.assertEqual(self.inactive, self.active_pane())
+        client.send(b"\x0b")  # Ctrl-k still moves up to the original pane.
+        wait_until(lambda: self.active_pane() == self.active, "Ctrl-k pane navigation")
         self.assertCountEqual(
             [self.active, self.inactive], self.tmux("list-panes", "-F", "#{pane_id}").stdout.split()
         )
@@ -249,7 +262,7 @@ class NavigationTest(unittest.TestCase):
         attach_complete = "set-option -g @navigation_attached 1"
         self.tmux("set-hook", "-g", attach_hook, attach_complete)
         client = Client(self)
-        self.clients.append(client)
+        self.addCleanup(client.close)
 
         def outer_attached() -> bool:
             client.pump(0.02)
@@ -269,17 +282,22 @@ class NavigationTest(unittest.TestCase):
         try:
             inner(
                 "-f",
-                str(self.config),
+                "/dev/null",
                 "new-session",
                 "-d",
                 "-s",
                 "nested",
                 self.idle_pane,
             )
+            inner("source-file", str(self.config), check=False)
+            log = self.root / "inner-input"
             inner_first = inner("display-message", "-p", "#{pane_id}").stdout.strip()
             inner_second = inner(
-                "split-window", "-d", "-P", "-F", "#{pane_id}", self.idle_pane
+                "split-window", "-d", "-P", "-F", "#{pane_id}", self.input_reader(log)
             ).stdout.strip()
+            self.assertRegex(inner_first, r"^%\d+$")
+            self.assertRegex(inner_second, r"^%\d+$")
+            wait_until(log.exists, "nested pane ready for raw input")
             inner("select-pane", "-t", inner_first)
             inner("select-pane", "-t", inner_second)
             inner("set-hook", "-g", attach_hook, attach_complete)
@@ -337,14 +355,14 @@ class NavigationTest(unittest.TestCase):
             self.assertEqual(inner_second, self.active_pane(inner_socket))
             client.send(b"\x1c")
 
-            def previous_pane_selected() -> bool:
+            def input_received() -> bool:
                 # Keep draining the outer PTY while the inner redraw travels
                 # through it. A blocked output stream can stall the fixture.
                 client.pump(0.02)
-                return self.active_pane(inner_socket) == inner_first
+                return b"\x1c" in log.read_bytes()
 
             try:
-                wait_until(previous_pane_selected, "nested Ctrl-backslash previous-pane selection")
+                wait_until(input_received, "Ctrl-backslash in the nested pane")
             except AssertionError as error:
                 outer_pane = self.tmux("display-message", "-p", "#{pane_id}", check=False).stdout
                 inner_pane = inner("display-message", "-p", "#{pane_id}", check=False).stdout
@@ -360,6 +378,7 @@ class NavigationTest(unittest.TestCase):
                 self.active_pane(),
                 "the outer tmux must forward rather than consume the nested chord",
             )
+            self.assertEqual(inner_second, self.active_pane(inner_socket))
             self.assertCountEqual(
                 [inner_first, inner_second], inner("list-panes", "-F", "#{pane_id}").stdout.split()
             )

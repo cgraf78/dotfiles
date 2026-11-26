@@ -180,10 +180,9 @@ Alt-Shift-H/J/K/L moves the current Neovim split or tmux pane one directional
 step. Movement may climb same-host nested tmux scopes, but it deliberately
 stops before SSH and the outer terminal because layouts are host-local state.
 Ctrl-backslash needs no WezTerm key assignment: WezTerm's normal terminal
-encoding sends the C0 file-separator byte (`0x1c`), and each tmux/Neovim layer
-either forwards it inward or consumes it as that scope's local previous-pane
-operation. Keeping it out of the boundary router avoids inventing a global
-history across unrelated nested scopes.
+encoding sends the C0 file-separator byte (`0x1c`). The base tmux config
+leaves it unbound so foreground apps, including Herdr's `hc attach`, receive
+it directly.
 
 WezTerm also owns `Alt-Shift-[` and `Alt-Shift-]` tab moves only outside
 Neovim/tmux panes. In terminal-owned panes the key is forwarded inward as
