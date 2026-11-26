@@ -28,12 +28,15 @@ if ! tmux_cmd -f /dev/null new-session -d 'exec sleep 300' 2>/dev/null; then
   _fail 'tmux navigation test server starts'
   _test_summary
 fi
+# An already-running server may still have the binding from the old config.
+backslash=$'\\'
+tmux_cmd bind-key -n "C-$backslash" select-pane -l
+_assert_exit 'tmux navigation can seed the old Ctrl-backslash binding' 0 "$?"
 tmux_cmd source-file "$fragment" >/dev/null 2>&1 || true
 
 help_keys=$(tmux_cmd list-keys -N)
 for description in 'Navigate left across editor and terminal panes' \
-  'Select the next tab across terminal layers' \
-  'Return to the previous pane or editor split'; do
+  'Select the next tab across terminal layers'; do
   _assert_contains "tmux navigation: help shows $description" "$description" "$help_keys"
 done
 
@@ -57,9 +60,6 @@ pane_move_left=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-H ' || tr
 pane_move_down=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-J ' || true)
 pane_move_up=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-K ' || true)
 pane_move_right=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root M-L ' || true)
-backslash=$'\\'
-previous_pane=$(printf '%s\n' "$root_keys" |
-  grep -F "bind-key -T root C-${backslash}${backslash} " || true)
 mouse_down=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-MouseDown1Pane ' || true)
 mouse_drag=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-MouseDrag1Pane ' || true)
 mouse_up=$(printf '%s\n' "$root_keys" | grep 'bind-key -T root C-MouseUp1Pane ' || true)
@@ -137,13 +137,8 @@ for move_index in "${!move_lines[@]}"; do
   _assert_not_contains "tmux navigation runtime starts $direction pane movement locally" \
     '--parent' "$line"
 done
-_assert_contains 'tmux navigation runtime forwards Ctrl-backslash inside navigation-aware panes' \
-  "send-keys C-${backslash}${backslash}${backslash}${backslash}" \
-  "$previous_pane"
-_assert_contains 'tmux navigation runtime keeps previous-pane selection local' \
-  'select-pane -l' "$previous_pane"
-_assert_not_contains 'tmux navigation runtime does not route previous-pane outward' \
-  'termnav navigate' "$previous_pane"
+_assert_not_contains 'tmux navigation config clears the previous Ctrl-backslash binding on reload' \
+  "bind-key -T root C-${backslash}${backslash} " "$root_keys"
 _assert_contains 'tmux navigation runtime forwards Ctrl-click into mouse-aware panes' \
   'send-keys -M' "$mouse_down"
 _assert_contains 'tmux navigation runtime keeps Ctrl-drag inside mouse-aware panes' \
@@ -451,7 +446,7 @@ if command -v python3 >/dev/null 2>&1; then
   printf '%s\n' "$pty_output"
   _assert_exit 'tmux navigation PTY navigation coverage passes' 0 "$pty_status"
   _assert_contains 'tmux navigation PTY tests local Ctrl-backslash' \
-    'test_ctrl_backslash_selects_the_local_previous_pane' "$pty_output"
+    'test_ctrl_backslash_reaches_the_active_pane' "$pty_output"
   _assert_contains 'tmux navigation PTY tests nested Ctrl-backslash' \
     'test_ctrl_backslash_forwards_through_a_nested_tmux' "$pty_output"
   for click_test in test_an_agent_click_goes_to_termnav \
