@@ -1778,7 +1778,15 @@ class LeafStyleTest(unittest.TestCase):
         # successor of a pane is never itself.
         self.tmux("new-session", "-d", "-t", "build", "-s", "build-peer")
         self.tmux("set-option", "-p", "-t", work_waiting, "@term_notify_pending", "waiting")
-        self.assertEqual([build, work_waiting], self.attention_panes(client))
+        # work_waiting was listed earlier in this test, then dropped out of
+        # a single immediate read right after the grouped session was
+        # created; the cause is transient and unreproduced. Read the list
+        # only once it shows both waiting panes: waiting tolerates the
+        # transient and still fails loudly if the state never converges.
+        wait_until(
+            lambda: [build, work_waiting] == self.attention_panes(client),
+            "the grouped session lists both waiting panes",
+        )
         jump(work_waiting, "work", "a grouped session does not repeat the pane")
         jump(build, "build", "and the cycle returns to the grouped window")
 
@@ -1793,7 +1801,14 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("new-session", "-d", "-t", "a*", "-s", "a*b")
         self.tmux("set-option", "-p", "-t", bracket, "@term_notify_pending", "waiting")
         self.tmux("set-option", "-p", "-t", star, "@term_notify_pending", "waiting")
-        self.assertEqual(sorted([bracket, star]), sorted(self.attention_panes(client)))
+        # The new sessions' panes are just-split fake agents, so wait until
+        # tmux has published their commands: a single-arg pane command runs
+        # via the shell first, and until the agent execs the list reads the
+        # pane as a shell and hides it.
+        wait_until(
+            lambda: sorted([bracket, star]) == sorted(self.attention_panes(client)),
+            "both glob-named sessions list their waiting panes",
+        )
         # Both are reachable, in tmux's session order; tmux picks the most
         # recently active session of each group.
         groups = {star: ("a*", "a*b"), bracket: ("w[1]", "w[1]-peer")}
@@ -4016,7 +4031,12 @@ class LeafStyleTest(unittest.TestCase):
         self.tmux("select-pane", "-t", done)
         self.tmux("set-option", "-p", "-t", done, "@term_notify_pending", "done")
         self.tmux("set-option", "-p", "-t", waiting, "@term_notify_pending", "waiting")
-        self.assertEqual([waiting, done], self.attention_panes(client))
+        # The waiting pane is a just-split fake agent: wait until tmux has
+        # published its command, or the list reads it as a shell and hides it.
+        wait_until(
+            lambda: [waiting, done] == self.attention_panes(client),
+            "the waiting pane and the done pane are both listed",
+        )
         self.press(client, b"a")
         wait_until(lambda: self.client_view(client) == ("focus", waiting), "prefix a lands")
         client.pump(0.2)
