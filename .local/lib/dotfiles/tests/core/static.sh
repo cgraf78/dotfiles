@@ -82,40 +82,41 @@ dot_core_test_static() {
     'DOT_TEST_JOBS=1 .local/lib/dotfiles/tests/run-ci --top-level' "$workflow"
   _assert_contains "CI workflow: every Dot invocation enters the resolved wrapper" \
     "stack-dot-runtime control-plane-run-ci" "$workflow"
-  _assert_contains "CI workflow: cold bootstrap uses the resolved wrapper" \
-    "stack-dot-runtime reproducible-cold-bootstrap" "$workflow"
-  # shellcheck disable=SC2016 # Match literal variables in the workflow shell.
-  _assert_contains "CI workflow: cold bootstrap isolates the resolved Dot public API" \
-    'export DOT_TEST_HOST_HOME=$launcher_home' \
-    "$workflow"
-  _assert_contains "CI workflow: cold bootstrap restores installed API validation" \
-    'unset DOT_TEST_HOST_HOME' \
-    "$workflow"
-  # shellcheck disable=SC2016 # Match literal variables in the workflow shell.
-  _assert_contains "CI workflow: cold bootstrap drops the stacked Dot before doctor" \
-    'PATH=${PATH#"${DOT_STACK_DOT_BIN%/*}:"}' \
-    "$workflow"
-  # shellcheck disable=SC2016 # Match literal variables in the workflow shell.
-  _assert_contains "CI workflow: cold bootstrap diagnoses through the managed Dot" \
-    '"$public_dot" -ef "$HOME/.local/share/cgraf78/dot/dot"' \
-    "$workflow"
-  # Order is checked inside the cold-bootstrap job only, so a matching line
-  # in another job can neither satisfy nor mask it. Each step must appear in
-  # this order: update, drop the stacked Dot, prove the managed public
-  # command, then diagnose.
+  # The cold bootstrap guards the README one-liner on a brand-new host. These
+  # checks pin the properties that make it a real fresh host (see the job's
+  # comment): a job that seeded the public library, stacked a frozen runtime,
+  # or resumed before the launcher check stayed green while every new host's
+  # first converge broke the Git launcher. Assertions are scoped to the job,
+  # so text in another job can neither satisfy nor mask them.
   cold_job=$(awk '
     /^  cold-bootstrap:$/ { inside = 1; print; next }
     inside && /^  [A-Za-z0-9_-]+:$/ { exit }
     inside { print }
   ' "$root/.github/workflows/test.yml")
+  _assert_contains "CI workflow: cold bootstrap runs the published installer" \
+    'curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |' \
+    "$cold_job"
+  _assert_not_contains "CI workflow: cold bootstrap seeds no launcher test host" \
+    'DOT_TEST_HOST_HOME=' "$cold_job"
+  _assert_not_contains "CI workflow: cold bootstrap stacks no frozen Dot runtime" \
+    'stack-dot-runtime' "$cold_job"
+  _assert_not_contains "CI workflow: cold bootstrap runs for every change" \
+    'github.event_name' "$cold_job"
+  # Each step must appear in this order: bootstrap, fail on a launcher that
+  # lost its helper before any resume can hide it, resume once, update, prove
+  # the managed public command and library, run Git through the launcher,
+  # then diagnose.
   # shellcheck disable=SC2016 # Match the literal workflow shell.
   cold_order=(
+    '            bash -s -- --init --yes --branch main "file://$origin" 2>&1 |'
+    "          if grep -F 'could not load launcher helper' \"\$log\"; then"
+    '            dot init --branch main "file://$origin"'
     '          dot update'
-    '          unset DOT_TEST_HOST_HOME'
-    '          PATH=${PATH#"${DOT_STACK_DOT_BIN%/*}:"}'
     '          public_dot=$(command -v dot)'
     '          test "$public_dot" = "$HOME/.local/bin/dot"'
     '          test "$public_dot" -ef "$HOME/.local/share/cgraf78/dot/dot"'
+    '          test "$HOME/.local/lib/dot" -ef "$HOME/.local/share/cgraf78/dot/lib/dot/public"'
+    '          git --version'
     '          dot doctor'
   )
   cold_previous=0
@@ -129,9 +130,9 @@ dot_core_test_static() {
     cold_previous=$cold_line
   done
   if [[ $cold_ordered == 1 ]]; then
-    _pass "CI workflow: cold bootstrap switches Dot only after update"
+    _pass "CI workflow: cold bootstrap checks the launcher before resuming"
   else
-    _fail "CI workflow: cold bootstrap switches Dot only after update"
+    _fail "CI workflow: cold bootstrap checks the launcher before resuming"
   fi
   # The installed-profile job lives in a reusable workflow so the overlay
   # repositories can run it against their own pull request revisions.

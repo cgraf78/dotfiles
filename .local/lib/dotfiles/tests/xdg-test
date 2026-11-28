@@ -60,6 +60,42 @@ _assert_eq "launcher cleanup: relative XDG still uses temporary HOME" \
 _assert_eq "launcher cleanup: emits no XDG loader errors" '' \
   "$(<"$isolated_error")"
 
+# A fresh host's first converge runs Git through the launcher before the
+# Shdeps post hook for Dot publishes ~/.local/lib/dot. The helper must then
+# find the public API through the `dot` command link into the release root,
+# and the real launcher must run Git rather than die.
+fresh_home=$work/fresh-home
+fresh_release=$fresh_home/.local/share/cgraf78/dot
+fresh_error=$work/fresh-launcher.err
+mkdir -p "$fresh_home/.local/bin" "$fresh_home/.local/lib/dotfiles" \
+  "$fresh_release/lib/dot/public"
+cp "$source_home/.local/lib/dotfiles/launcher-real.sh" "$fresh_home/.local/lib/dotfiles/"
+cp "$source_home/.local/bin/git" "$fresh_home/.local/bin/git"
+cp "$dot_root/lib/dot/public/xdg.sh" "$fresh_release/lib/dot/public/xdg.sh"
+printf '#!/bin/sh\n' >"$fresh_release/dot"
+chmod +x "$fresh_release/dot"
+ln -s ../share/cgraf78/dot/dot "$fresh_home/.local/bin/dot"
+_assert_file_missing "fresh host: fixture has no public library link" \
+  "$fresh_home/.local/lib/dot"
+fresh_status=0
+fresh_version=$(env -u DOT_TEST_HOST_HOME HOME="$fresh_home" \
+  XDG_CACHE_HOME="$fresh_home/.cache" PATH="$fresh_home/.local/bin:$PATH" \
+  "$fresh_home/.local/bin/git" --version 2>"$fresh_error") || fresh_status=$?
+_assert_eq "fresh host: Git launcher runs before the library link exists" \
+  0 "$fresh_status"
+_assert_contains "fresh host: launcher reaches real Git" "git version" "$fresh_version"
+_assert_eq "fresh host: launcher emits no loader errors" '' "$(<"$fresh_error")"
+
+# Without either the link or a release behind the command, the helper still
+# fails closed rather than guessing another library.
+rm "$fresh_home/.local/bin/dot"
+fresh_status=0
+# shellcheck disable=SC2016 # The fixture shell expands its own argument.
+env -u DOT_TEST_HOST_HOME HOME="$fresh_home" \
+  bash -c '. "$1"' _ "$fresh_home/.local/lib/dotfiles/launcher-real.sh" \
+  >/dev/null 2>&1 || fresh_status=$?
+_assert_eq "fresh host: no link and no dot command still fails closed" 1 "$fresh_status"
+
 marks_one=$(cd "$cwd_one" && HOME=$fixture_home XDG_DATA_HOME=relative/data \
   bash -c '. "$1"; printf "%s" "$_MARKS_DIR"' \
   _ "$source_home/.config/shell/interactive.d/57-marks.sh")
