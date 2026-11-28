@@ -162,9 +162,14 @@ jobs:
     #   failure where the dotfiles Git launcher could not load its helper
     #   until Shdeps published ~/.local/lib/dot, so every Shdeps clone
     #   failed on every new host while this job stayed green.
-    # - Do not move the launcher check below the resume, or add retries
+    # - Do not move the first-run check below the resume, or add retries
     #   ahead of it: a resumed init succeeds once the first run has
-    #   published the link, masking the defect again.
+    #   published the link, masking the defect again (verified: on the
+    #   broken launcher the first init fails with 16 `clone failed` items
+    #   and the resume completes cleanly).
+    # - Keep matching `clone failed`, not just the launcher's message:
+    #   Shdeps discards `git clone` stderr, so the console only ever shows
+    #   the summarized item.
     # - Do not run it only on a schedule: a fresh-host regression should
     #   fail the change that introduces it.
     # - If GitHub rate limits or other transient service failures make it
@@ -234,9 +239,12 @@ jobs:
             tee "$log" || init_status=$?
           # A first converge that breaks the client's own launchers (such as
           # Git running before Shdeps publishes ~/.local/lib/dot) is
-          # deterministic, and the resume below would hide it.
-          if grep -F 'could not load launcher helper' "$log"; then
-            echo '::error::first converge ran a launcher without its helper'
+          # deterministic, and the resume below would hide it. Shdeps
+          # discards clone stderr, so a broken Git launcher surfaces only as
+          # `clone failed` items. Anonymous clones of public repositories
+          # are not what #320 resumes for, so failing on them is right.
+          if grep -E 'could not load launcher helper|clone failed' "$log"; then
+            echo '::error::first converge failed GitHub clones or a launcher'
             exit 1
           fi
           export PATH="$HOME/.local/bin:$PATH"

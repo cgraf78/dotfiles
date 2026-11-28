@@ -102,14 +102,17 @@ dot_core_test_static() {
     'stack-dot-runtime' "$cold_job"
   _assert_not_contains "CI workflow: cold bootstrap runs for every change" \
     'github.event_name' "$cold_job"
-  # Each step must appear in this order: bootstrap, fail on a launcher that
-  # lost its helper before any resume can hide it, resume once, update, prove
+  # Each step must appear in this order: bootstrap, fail on GitHub clone or
+  # launcher failures before any resume can hide them (Shdeps discards clone
+  # stderr, so `clone failed` is what a broken launcher leaves), resume once,
+  # update, prove
   # the managed public command and library, run Git through the launcher,
   # then diagnose.
   # shellcheck disable=SC2016 # Match the literal workflow shell.
   cold_order=(
+    '          curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |'
     '            bash -s -- --init --yes --branch main "file://$origin" 2>&1 |'
-    "          if grep -F 'could not load launcher helper' \"\$log\"; then"
+    "          if grep -E 'could not load launcher helper|clone failed' \"\$log\"; then"
     '            dot init --branch main "file://$origin"'
     '          dot update'
     '          public_dot=$(command -v dot)'

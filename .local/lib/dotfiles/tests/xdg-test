@@ -74,24 +74,45 @@ cp "$source_home/.local/bin/git" "$fresh_home/.local/bin/git"
 cp "$dot_root/lib/dot/public/xdg.sh" "$fresh_release/lib/dot/public/xdg.sh"
 printf '#!/bin/sh\n' >"$fresh_release/dot"
 chmod +x "$fresh_release/dot"
-ln -s ../share/cgraf78/dot/dot "$fresh_home/.local/bin/dot"
 _assert_file_missing "fresh host: fixture has no public library link" \
   "$fresh_home/.local/lib/dot"
-fresh_status=0
-fresh_version=$(env -u DOT_TEST_HOST_HOME HOME="$fresh_home" \
-  XDG_CACHE_HOME="$fresh_home/.cache" PATH="$fresh_home/.local/bin:$PATH" \
-  "$fresh_home/.local/bin/git" --version 2>"$fresh_error") || fresh_status=$?
-_assert_eq "fresh host: Git launcher runs before the library link exists" \
-  0 "$fresh_status"
-_assert_contains "fresh host: launcher reaches real Git" "git version" "$fresh_version"
-_assert_eq "fresh host: launcher emits no loader errors" '' "$(<"$fresh_error")"
+
+# _fresh_git DESC [ENV...] runs the fixture's real Git launcher, with the
+# given extra environment, and asserts it reaches real Git with no loader
+# errors. PREFIX is cleared unless a case sets it, so a Termux CI leg cannot
+# satisfy the non-Termux cases through its own $PREFIX/bin/dot.
+_fresh_git() {
+  local desc=$1 status=0 version
+  shift
+  version=$(env -u DOT_TEST_HOST_HOME -u PREFIX HOME="$fresh_home" \
+    XDG_CACHE_HOME="$fresh_home/.cache" PATH="$fresh_home/.local/bin:$PATH" "$@" \
+    "$fresh_home/.local/bin/git" --version 2>"$fresh_error") || status=$?
+  _assert_eq "fresh host ($desc): Git launcher runs before the library link exists" \
+    0 "$status"
+  _assert_contains "fresh host ($desc): launcher reaches real Git" "git version" "$version"
+  _assert_eq "fresh host ($desc): launcher emits no loader errors" '' "$(<"$fresh_error")"
+}
+
+# The installer writes an absolute link; a relative one must work too.
+ln -s "$fresh_release/dot" "$fresh_home/.local/bin/dot"
+_fresh_git 'absolute dot link'
+rm "$fresh_home/.local/bin/dot"
+ln -s ../share/cgraf78/dot/dot "$fresh_home/.local/bin/dot"
+_fresh_git 'relative dot link'
+rm "$fresh_home/.local/bin/dot"
+
+# On Termux the installer publishes the command in $PREFIX/bin instead.
+fresh_prefix=$work/fresh-prefix
+mkdir -p "$fresh_prefix/bin"
+ln -s "$fresh_release/dot" "$fresh_prefix/bin/dot"
+_fresh_git 'Termux PREFIX/bin link' PREFIX="$fresh_prefix"
+rm "$fresh_prefix/bin/dot"
 
 # Without either the link or a release behind the command, the helper still
 # fails closed rather than guessing another library.
-rm "$fresh_home/.local/bin/dot"
 fresh_status=0
 # shellcheck disable=SC2016 # The fixture shell expands its own argument.
-env -u DOT_TEST_HOST_HOME HOME="$fresh_home" \
+env -u DOT_TEST_HOST_HOME -u PREFIX HOME="$fresh_home" \
   bash -c '. "$1"' _ "$fresh_home/.local/lib/dotfiles/launcher-real.sh" \
   >/dev/null 2>&1 || fresh_status=$?
 _assert_eq "fresh host: no link and no dot command still fails closed" 1 "$fresh_status"
