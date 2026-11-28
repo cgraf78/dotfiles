@@ -34,6 +34,8 @@ the owning overlay. Base inputs and hook instances currently cover:
 - terminal and keyboard application policy;
 - SSH fragments, including selected-overlay transport fragments prepared by
   the pre-sync hook;
+- per-account GitHub transport policy (SSH or token-authenticated HTTPS),
+  documented in [`github-transport/README.md`](github-transport/README.md);
 - the tmux reload and the WSL-only copy of the WezTerm config into the
   Windows home, declared by README-only instance directories.
 

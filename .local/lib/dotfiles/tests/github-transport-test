@@ -1,0 +1,342 @@
+#!/usr/bin/env bash
+# github-transport-test — per-account GitHub SSH/HTTPS policy and the token
+# credential helper.
+# shellcheck disable=SC1091 # Shared suite helper resolves beside this file.
+. "${BASH_SOURCE[0]%/*}/helpers.sh"
+SOURCE_HOME=${DOT_TEST_SOURCE_HOME:-${BASH_SOURCE[0]%/.local/lib/dotfiles/tests/*}}
+HOOK=$SOURCE_HOME/.local/lib/dotfiles/merge-hooks.d/github-transport.sh
+HELPER=$SOURCE_HOME/.local/lib/dotfiles/git-credential-github-pat
+BASE_DEFAULT=$SOURCE_HOME/.config/dot/merge-hooks.d/github-transport/policy.d/default.replace/00-base.conf
+_assert_file_exists 'base owns the GitHub transport hook' "$HOOK"
+_assert_file_exists 'base owns the GitHub token credential helper' "$HELPER"
+_assert_file_exists 'base ships the SSH default record' "$BASE_DEFAULT"
+if [[ ! -f $HOOK || ! -f $HELPER || ! -f $BASE_DEFAULT ]]; then
+  _test_summary
+fi
+
+FIXTURE=$(_tmpdir)
+MERGE_HOME=$FIXTURE/home
+POLICY=$MERGE_HOME/.config/dot/merge-hooks.d/github-transport/policy.d
+GITCONFIG=$MERGE_HOME/.gitconfig
+ME=$(id -un)
+# Dot's host identity: the kernel host name cut at its first dot, lowercased.
+HOST=$(uname -n)
+HOST=${HOST%%.*}
+HOST=$(printf '%s' "$HOST" | tr '[:upper:]' '[:lower:]')
+
+_test_load_dot_merge_api || exit 1
+
+# Each run gets the fixture home as both HOME and XDG config root, so the
+# family helpers read only the records this test writes.
+_run_merge() (
+  export HOME=$MERGE_HOME XDG_CONFIG_HOME=$MERGE_HOME/.config
+  export GIT_CONFIG_NOSYSTEM=1
+  unset GIT_CONFIG_GLOBAL GIT_CONFIG_COUNT
+  # shellcheck source=/dev/null
+  . "$HOOK" || exit
+  merge
+)
+
+_reset_policy() {
+  rm -rf "$MERGE_HOME"
+  mkdir -p "$POLICY/default.replace" "$MERGE_HOME/.local/lib/dotfiles"
+  cp "$BASE_DEFAULT" "$POLICY/default.replace/00-base.conf"
+  # The block names the helper by its installed HOME path.
+  cp "$HELPER" "$MERGE_HOME/.local/lib/dotfiles/git-credential-github-pat"
+  # HTTPS is only installed for an account that has a token.
+  mkdir -p "$MERGE_HOME/.config/gh"
+  printf 'fixture-token\n' >"$MERGE_HOME/.config/gh/github-pat"
+}
+
+# _record FILE KEY=VALUE... writes one record relative to policy.d.
+_record() {
+  local file=$POLICY/$1
+  shift
+  mkdir -p "${file%/*}"
+  printf '%s\n' "$@" >"$file"
+}
+
+# Run Git as the fixture account would. The harness pins GIT_CONFIG_GLOBAL to
+# a scratch file for isolation, which would hide ~/.gitconfig, so these probes
+# drop it and read the fixture HOME's global config like a real account.
+_account_git() {
+  env -u GIT_CONFIG_GLOBAL HOME="$MERGE_HOME" GIT_CONFIG_NOSYSTEM=1 \
+    GIT_TERMINAL_PROMPT=0 git "$@"
+}
+
+# Effective URL Git would use for an SSH-spelled GitHub remote.
+_effective_url() {
+  local repo=$FIXTURE/repo
+  rm -rf "$repo"
+  _account_git init -q "$repo" &&
+    _account_git -C "$repo" remote add origin "$1" &&
+    _account_git -C "$repo" remote get-url origin
+}
+
+_status_of() {
+  local status=0
+  "$@" >/dev/null 2>&1 || status=$?
+  printf '%s\n' "$status"
+}
+
+# Assert a merge succeeds before checking its effect. A failing hook leaves
+# ~/.gitconfig absent too, so an unchecked merge would let every
+# "file missing" assertion pass vacuously.
+MERGE_RUNS=0
+_merge_ok() {
+  MERGE_RUNS=$((MERGE_RUNS + 1))
+  _assert_exit "merge run $MERGE_RUNS succeeds" 0 "$(_status_of _run_merge)"
+}
+
+# --- defaults --------------------------------------------------------------
+_reset_policy
+rm -rf "$POLICY"
+_assert_exit 'missing policy family is accepted' 0 "$(_status_of _run_merge)"
+_assert_file_missing 'missing policy leaves Git unconfigured' "$GITCONFIG"
+
+_reset_policy
+_assert_exit 'base default merges' 0 "$(_status_of _run_merge)"
+_assert_file_missing 'base SSH default creates no ~/.gitconfig' "$GITCONFIG"
+_assert_eq 'base SSH default keeps SSH remotes' 'git@github.com:o/r.git' \
+  "$(_effective_url git@github.com:o/r.git)"
+
+# --- HTTPS selection and its effect -----------------------------------------
+_reset_policy
+_record user-me.conf version=1 "user=$ME" transport=https
+_merge_ok
+_assert_file_exists 'user record selecting HTTPS writes ~/.gitconfig' "$GITCONFIG"
+_assert_eq 'scp-style remote is rewritten to HTTPS' 'https://github.com/o/r.git' \
+  "$(_effective_url git@github.com:o/r.git)"
+_assert_eq 'ssh:// remote is rewritten to HTTPS' 'https://github.com/o/r.git' \
+  "$(_effective_url ssh://git@github.com/o/r.git)"
+_assert_eq 'other SSH hosts are left alone' 'git@example.com:o/r.git' \
+  "$(_effective_url git@example.com:o/r.git)"
+
+mkdir -p "$MERGE_HOME/.config/gh"
+printf 'fixture-token\n' >"$MERGE_HOME/.config/gh/github-pat"
+fill=$(printf 'protocol=https\nhost=github.com\n\n' | _account_git credential fill 2>/dev/null)
+_assert_contains 'Git asks the helper and receives the token' 'password=fixture-token' "$fill"
+_assert_contains 'helper supplies the token username' 'username=x-access-token' "$fill"
+
+_inode() { stat -c '%i' "$1" 2>/dev/null || stat -f '%i' "$1"; }
+before=$(cat "$GITCONFIG")
+before_inode=$(_inode "$GITCONFIG")
+_merge_ok
+_assert_eq 'repeated HTTPS merge leaves content unchanged' "$before" "$(cat "$GITCONFIG")"
+_assert_eq 'repeated HTTPS merge keeps the same inode' "$before_inode" "$(_inode "$GITCONFIG")"
+
+_reset_policy
+_record host-me.conf version=1 "host=$HOST" transport=https
+_merge_ok
+_assert_file_exists 'host record selecting HTTPS writes ~/.gitconfig' "$GITCONFIG"
+
+_reset_policy
+_record host-other.conf version=1 host=not-this-host transport=https
+_record user-other.conf version=1 user=not-this-user transport=https
+_merge_ok
+_assert_file_missing 'records for other accounts do not apply' "$GITCONFIG"
+
+# --- precedence -------------------------------------------------------------
+_reset_policy
+_record user-me.conf version=1 "user=$ME" transport=https
+_record host-me.user-me.conf version=1 "user=$ME" "host=$HOST" transport=ssh
+_merge_ok
+_assert_file_missing 'user+host SSH record beats a user-only HTTPS record' "$GITCONFIG"
+
+_reset_policy
+_record user-me.conf version=1 "user=$ME" transport=https
+_record host-me.conf version=1 "host=$HOST" transport=https
+_assert_exit 'agreeing records at one level are accepted' 0 "$(_status_of _run_merge)"
+_assert_file_exists 'agreeing records apply HTTPS' "$GITCONFIG"
+
+_reset_policy
+printf '[user]\n\tname = Hand Written\n' >"$GITCONFIG"
+_record user-me.conf version=1 "user=$ME" transport=https
+_record host-me.conf version=1 "host=$HOST" transport=ssh
+_assert_exit 'disagreeing records at one level fail' 1 "$(_status_of _run_merge)"
+_assert_file_content 'a conflict leaves ~/.gitconfig untouched' \
+  "$(printf '[user]\n\tname = Hand Written')" "$GITCONFIG"
+
+# A disagreement below the winning level is irrelevant, whatever order the
+# family lists the files in (a- and b- sort before the winning c- record).
+_reset_policy
+_record a-user.conf version=1 "user=$ME" transport=https
+_record b-host.conf version=1 "host=$HOST" transport=ssh
+_record c-both.conf version=1 "user=$ME" "host=$HOST" transport=https
+_merge_ok
+_assert_file_exists 'a lower-level conflict does not block a more specific record' "$GITCONFIG"
+
+# Host matching follows Dot's normalization: case-insensitive, one trailing dot.
+_reset_policy
+_record host-upper.conf version=1 "host=$(printf '%s' "$HOST" | tr '[:lower:]' '[:upper:]')." transport=https
+_merge_ok
+_assert_file_exists 'host match ignores case and one trailing dot' "$GITCONFIG"
+
+# Records written on Windows or without a final newline still parse.
+_reset_policy
+printf 'version=1\r\nuser=%s\r\ntransport=https\r\n' "$ME" >"$POLICY/user-crlf.conf"
+_merge_ok
+_assert_file_exists 'a CRLF record parses' "$GITCONFIG"
+_reset_policy
+printf 'version=1\nuser=%s\ntransport=https' "$ME" >"$POLICY/user-eof.conf"
+_merge_ok
+_assert_file_exists 'a record without a final newline parses' "$GITCONFIG"
+
+# --- URL spellings and the helper reset -------------------------------------
+_reset_policy
+_record user-me.conf version=1 "user=$ME" transport=https
+_merge_ok
+_assert_eq 'ssh:// remote with port 22 is rewritten' 'https://github.com/o/r.git' \
+  "$(_effective_url ssh://git@github.com:22/o/r.git)"
+_assert_eq 'ssh:// remote without a user is rewritten' 'https://github.com/o/r.git' \
+  "$(_effective_url ssh://github.com/o/r.git)"
+
+# A broader helper (here `store`, in the hand-written part of ~/.gitconfig)
+# must not run for GitHub, or Git would copy the token into its storage.
+mkdir -p "$MERGE_HOME/.config/gh"
+printf 'fixture-token\n' >"$MERGE_HOME/.config/gh/github-pat"
+printf '[credential]\n\thelper = store\n' >"$GITCONFIG"
+_merge_ok
+printf 'protocol=https\nhost=github.com\nusername=x-access-token\npassword=fixture-token\n\n' |
+  _account_git credential approve 2>/dev/null
+_assert_file_missing 'a broader store helper never receives the GitHub token' \
+  "$MERGE_HOME/.git-credentials"
+fill=$(printf 'protocol=https\nhost=github.com:443\n\n' | _account_git credential fill 2>/dev/null)
+_assert_contains 'an explicit :443 GitHub URL still gets the token' 'password=fixture-token' "$fill"
+
+rm -f "$MERGE_HOME/.config/gh/github-pat"
+fill_status=0
+printf 'protocol=https\nhost=github.com\n\n' | _account_git credential fill >/dev/null 2>&1 ||
+  fill_status=$?
+_assert_eq 'without a token Git stops instead of prompting' 128 "$fill_status"
+
+# A selected-HTTPS account without a token keeps SSH and fails loudly: the
+# block would break every private fetch, including the overlay that could
+# deliver the fix. The block installed above is removed, and the hand-written
+# helper setting survives.
+_assert_exit 'HTTPS without a token fails the hook' 1 "$(_status_of _run_merge)"
+_assert_file_content 'HTTPS without a token falls back to SSH' \
+  "$(printf '[credential]\n\thelper = store')" "$GITCONFIG"
+_reset_policy
+_record user-me.conf version=1 "user=$ME" transport=https
+: >"$MERGE_HOME/.config/gh/github-pat"
+_assert_exit 'HTTPS with an empty token file fails the hook' 1 "$(_status_of _run_merge)"
+_assert_file_missing 'HTTPS with an empty token file creates no ~/.gitconfig' "$GITCONFIG"
+
+# --- flipping the default ---------------------------------------------------
+_reset_policy
+_record default.replace/50-overlay.conf version=1 transport=https
+_merge_ok
+_assert_file_exists 'overlay default replaces the base SSH default' "$GITCONFIG"
+
+_record host-me.user-me.conf version=1 "user=$ME" "host=$HOST" transport=ssh
+_merge_ok
+_assert_file_missing 'an SSH exception overrides the flipped default and removes the block' "$GITCONFIG"
+
+# --- switching back preserves hand-written config ---------------------------
+_reset_policy
+printf '[user]\n\tname = Hand Written\n' >"$GITCONFIG"
+_record user-me.conf version=1 "user=$ME" transport=https
+_merge_ok
+_assert_contains 'HTTPS block is added after hand-written config' \
+  "$(printf '[user]\n\tname = Hand Written\n\n# dot-managed:github-transport begin')" "$(cat "$GITCONFIG")"
+rm "$POLICY/user-me.conf"
+_merge_ok
+_assert_file_content 'switching to SSH strips only the managed block' \
+  "$(printf '[user]\n\tname = Hand Written')" "$GITCONFIG"
+before_inode=$(_inode "$GITCONFIG")
+_merge_ok
+_assert_eq 'a repeated SSH merge leaves the file untouched' "$before_inode" "$(_inode "$GITCONFIG")"
+
+# A symlinked ~/.gitconfig belongs to whatever manages its target: the hook
+# reports it and leaves both the link and the target alone.
+_reset_policy
+printf '[user]\n\tname = Linked\n' >"$MERGE_HOME/gitconfig-target"
+ln -s gitconfig-target "$GITCONFIG"
+_record user-me.conf version=1 "user=$ME" transport=https
+_assert_exit 'HTTPS refuses a symlinked ~/.gitconfig' 1 "$(_status_of _run_merge)"
+_assert_eq 'the refused symlink stays a symlink' yes "$([[ -L $GITCONFIG ]] && echo yes || echo no)"
+_assert_file_content 'the symlink target is untouched' "$(printf '[user]\n\tname = Linked')" \
+  "$MERGE_HOME/gitconfig-target"
+rm "$POLICY/user-me.conf"
+_merge_ok
+_assert_eq 'SSH with no block leaves a symlinked ~/.gitconfig alone' yes \
+  "$([[ -L $GITCONFIG ]] && echo yes || echo no)"
+
+# --- invalid records fail closed ---------------------------------------------
+_invalid_case() {
+  local desc=$1
+  shift
+  _reset_policy
+  printf '[user]\n\tname = Keep\n' >"$GITCONFIG"
+  "$@"
+  _assert_exit "$desc fails the hook" 1 "$(_status_of _run_merge)"
+  _assert_file_content "$desc leaves ~/.gitconfig untouched" \
+    "$(printf '[user]\n\tname = Keep')" "$GITCONFIG"
+}
+_invalid_case 'unknown key' _record user-me.conf version=1 "user=$ME" transport=https colour=blue
+_invalid_case 'missing version' _record user-me.conf "user=$ME" transport=https
+_invalid_case 'unsupported version' _record user-me.conf version=2 "user=$ME" transport=https
+_invalid_case 'unsupported transport' _record user-me.conf version=1 "user=$ME" transport=ftp
+_invalid_case 'duplicate key' _record user-me.conf version=1 "user=$ME" "user=$ME" transport=https
+_invalid_case 'line without =' _record user-me.conf version=1 "user=$ME" https
+_invalid_case 'default outside default.replace' _record everyone.conf version=1 transport=https
+_invalid_case 'identity in default.replace' \
+  _record default.replace/50-overlay.conf version=1 "user=$ME" transport=https
+_invalid_case 'filter syntax in host' _record host-bad.conf version=1 'host=alpha,!beta' transport=https
+_invalid_case 'a lone dot as host' _record host-dot.conf version=1 'host=.' transport=https
+_invalid_case 'an empty host value' _record user-me.conf version=1 "user=$ME" 'host=' transport=https
+_invalid_case 'an empty user value' _record host-me.conf version=1 'user=' "host=$HOST" transport=https
+_invalid_case 'a user starting with a digit' _record user-digit.conf version=1 user=1abc transport=https
+_invalid_case 'an empty identity in default.replace' \
+  _record default.replace/50-overlay.conf version=1 'user=' transport=https
+_invalid_case 'record in another replace group' \
+  _record other.replace/user-me.conf version=1 "user=$ME" transport=https
+
+# The family contract lists only top-level files and replace-group winners, so
+# a plain nested directory is inert rather than an error.
+_reset_policy
+_record nested/user-me.conf version=1 "user=$ME" transport=https
+_merge_ok
+_assert_file_missing 'records in plain subdirectories are ignored' "$GITCONFIG"
+
+# A malformed record must fail even when it would not match this account.
+_invalid_case 'invalid record for another account' \
+  _record user-other.conf version=1 user=not-this-user transport=maybe
+
+# --- credential helper --------------------------------------------------------
+HELPER_HOME=$FIXTURE/helper-home
+mkdir -p "$HELPER_HOME/.config/gh"
+_helper() {
+  HOME=$HELPER_HOME "$HELPER" "$@"
+}
+printf 'helper-token\nsecond-line\n' >"$HELPER_HOME/.config/gh/github-pat"
+_assert_eq 'get answers GitHub HTTPS with the first token line' \
+  "$(printf 'username=x-access-token\npassword=helper-token')" \
+  "$(printf 'protocol=https\nhost=github.com\n\n' | _helper get)"
+_assert_eq 'get tolerates newer protocol attributes' 'password=helper-token' \
+  "$(printf 'capability[]=authtype\nprotocol=https\nhost=github.com\nwwwauth[]=Basic realm="GitHub"\n\n' |
+    _helper get | sed -n 2p)"
+_assert_eq 'get ignores other hosts' '' \
+  "$(printf 'protocol=https\nhost=example.com\n\n' | _helper get)"
+_assert_eq 'get ignores plain HTTP' '' \
+  "$(printf 'protocol=http\nhost=github.com\n\n' | _helper get)"
+_assert_eq 'store is ignored' '' \
+  "$(printf 'protocol=https\nhost=github.com\nusername=u\npassword=p\n\n' | _helper store)"
+_assert_eq 'erase is ignored' '' \
+  "$(printf 'protocol=https\nhost=github.com\n\n' | _helper erase)"
+_assert_file_content 'store never rewrites the token file' \
+  "$(printf 'helper-token\nsecond-line')" "$HELPER_HOME/.config/gh/github-pat"
+printf 'crlf-token\r\n' >"$HELPER_HOME/.config/gh/github-pat"
+_assert_eq 'a CRLF token file is trimmed' 'password=crlf-token' \
+  "$(printf 'protocol=https\nhost=github.com\n\n' | _helper get | sed -n 2p)"
+: >"$HELPER_HOME/.config/gh/github-pat"
+_assert_eq 'an empty token file makes Git stop instead of prompting' 'quit=1' \
+  "$(printf 'protocol=https\nhost=github.com\n\n' | _helper get 2>/dev/null)"
+rm -f "$HELPER_HOME/.config/gh/github-pat"
+_assert_eq 'a missing token file makes Git stop instead of prompting' 'quit=1' \
+  "$(printf 'protocol=https\nhost=github.com\n\n' | _helper get 2>/dev/null)"
+_assert_contains 'a missing token file is reported on stderr' 'missing or empty' \
+  "$(printf 'protocol=https\nhost=github.com\n\n' | _helper get 2>&1 >/dev/null)"
+
+_test_summary
