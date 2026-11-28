@@ -11,6 +11,26 @@ if ! declare -F dot_xdg_path >/dev/null 2>&1; then
   if [[ ! -r $_dot_launcher_xdg ]]; then
     _dot_launcher_xdg=${_dot_launcher_client_dir%/dotfiles}/dot/xdg.sh
   fi
+  # On a fresh host the public library link does not exist yet: the Shdeps
+  # post hook for Dot publishes it only after adopting the release, and the
+  # same first converge clones other dependencies through this launcher
+  # before that. The adjacent `dot` command link already points into the
+  # release root, whose public API is the same payload the link would name.
+  # The installer publishes that link in the client's bin directory, or in
+  # $PREFIX/bin on Termux; a custom --bin-dir is not covered and still waits
+  # for the post hook.
+  for _dot_launcher_command in \
+    "${_dot_launcher_client_dir%/lib/dotfiles}/bin/dot" \
+    ${PREFIX:+"$PREFIX/bin/dot"}; do
+    [[ ! -r $_dot_launcher_xdg ]] || break
+    if [[ -L $_dot_launcher_command ]] &&
+      _dot_launcher_target=$(readlink -- "$_dot_launcher_command"); then
+      [[ $_dot_launcher_target == /* ]] ||
+        _dot_launcher_target=${_dot_launcher_command%/*}/$_dot_launcher_target
+      _dot_launcher_xdg=${_dot_launcher_target%/*}/lib/dot/public/xdg.sh
+    fi
+  done
+  unset _dot_launcher_command _dot_launcher_target
   [[ -r $_dot_launcher_xdg ]] || return 1
   # shellcheck source=../dot/xdg.sh disable=SC1091
   . "$_dot_launcher_xdg"

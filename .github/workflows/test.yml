@@ -150,8 +150,33 @@ jobs:
       dotfiles-ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
   cold-bootstrap:
+    # The README one-liner on a brand-new host, for every change: the
+    # published Dot installer, then `dot init` with nothing pre-seeded, so
+    # the first converge runs in the real client topology.
+    #
+    # Keep this job faithful to a real fresh host. Its value is exactly the
+    # state a test harness would be tempted to paper over:
+    # - Do not pre-create ~/.local/lib/dot, set DOT_TEST_HOST_HOME, stack a
+    #   frozen Dot runtime, or seed any other client state. An earlier
+    #   version of this job did all of that, and it hid a first-converge
+    #   failure where the dotfiles Git launcher could not load its helper
+    #   until Shdeps published ~/.local/lib/dot, so every Shdeps clone
+    #   failed on every new host while this job stayed green.
+    # - Do not move the first-run check below the resume, or add retries
+    #   ahead of it: a resumed init succeeds once the first run has
+    #   published the link, masking the defect again (verified: on the
+    #   broken launcher the first init fails with 16 `clone failed` items
+    #   and the resume completes cleanly).
+    # - Keep matching `clone failed`, not just the launcher's message:
+    #   Shdeps discards `git clone` stderr, so the console only ever shows
+    #   the summarized item.
+    # - Do not run it only on a schedule: a fresh-host regression should
+    #   fail the change that introduces it.
+    # - If GitHub rate limits or other transient service failures make it
+    #   flaky, fix that at the transport (authenticated API lookups as
+    #   below, bounded resumes of real stalls), never by seeding state,
+    #   skipping steps, or switching to a pre-installed runtime.
     name: Cold Ubuntu default-profile bootstrap
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -181,77 +206,73 @@ jobs:
           # SHDEPS_ALLOW_GH_AUTH_TOKEN because its test harness strips
           # tokens unless that flag is set; beyond that, the flag only
           # lets Shdeps fall back to `gh auth token`. This job needs
-          # neither.
+          # neither. The token only authenticates Shdeps' GitHub API
+          # lookups, because hosted runners share the 60/hour
+          # unauthenticated quota per IP. Git clones stay anonymous, as on
+          # a fresh host with no GitHub credentials, since nothing
+          # configures a credential helper; keep it that way.
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          # The commit under test; GITHUB_SHA is a merge commit on PRs.
+          EXPECTED: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |-
           set -euo pipefail
-          # Same floating control-plane release as test-command: the cold
-          # image carries no Rust toolchain, so a source checkout can
-          # never run here. The stacked runtime resolves `latest` once, so
-          # init and update share one frozen release. (Each matrix job
-          # resolves independently.) Shdeps separately resolves `latest`
-          # for the client's own Dot, which runs the final doctor below.
-          export DOT_STACK_DOT_RELEASE_TAG='latest'
           staging=$(mktemp -d /tmp/dotfiles-cold-bootstrap.XXXXXXXX)
           origin=$staging/origin.git
-          fixture_home=$staging/home
+          log=$staging/bootstrap.log
           git init --quiet --bare "$origin"
-          git push --quiet "$origin" "$GITHUB_SHA:refs/heads/main"
+          git push --quiet "$origin" "$EXPECTED:refs/heads/main"
           git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
-          mkdir "$fixture_home"
-
-          .local/lib/dotfiles/tests/stack-dot-runtime reproducible-cold-bootstrap -- \
-            bash -s -- "$origin" "$fixture_home" "$GITHUB_SHA" <<'BASH'
-          set -euo pipefail
-          origin=$1
-          fixture_home=$2
-          expected=$3
-          export HOME=$fixture_home
+          export HOME=$staging/home
+          mkdir "$HOME"
           unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
           unset GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
-          export PATH="${DOT_STACK_DOT_BIN%/*}:$HOME/.local/bin:$PATH"
-          export DOTFILES_BRANCH=main
           export GIT_TERMINAL_PROMPT=0
           export GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5'
 
-          # The normal installer publishes this API before `dot init`. Expose
-          # the resolved copy through the launcher's isolated test-host path so
-          # Shdeps can replace the fixture's real client topology normally.
-          launcher_home=${fixture_home%/*}/launcher-home
-          mkdir -p "$launcher_home/.local/lib"
-          ln -s "$DOT_STACK_DOT_ROOT/lib/dot/public" "$launcher_home/.local/lib/dot"
-          export DOT_TEST_HOST_HOME=$launcher_home
-
-          if ! dot init "file://$origin"; then
-            echo 'Cold bootstrap failed; retrying initialization once' >&2
-            dot init "file://$origin"
+          # What cgraf78.github.io/d runs, pointed at this commit: the latest
+          # published installer and release, with no Dot runtime, public
+          # library link, or other client state seeded beforehand.
+          init_status=0
+          curl -fsSL https://raw.githubusercontent.com/cgraf78/dot/main/install.sh |
+            bash -s -- --init --yes --branch main "file://$origin" 2>&1 |
+            tee "$log" || init_status=$?
+          # A first converge that breaks the client's own launchers (such as
+          # Git running before Shdeps publishes ~/.local/lib/dot) is
+          # deterministic, and the resume below would hide it. Shdeps
+          # discards clone stderr, so a broken Git launcher surfaces only as
+          # `clone failed` items. Anonymous clones of public repositories
+          # are not what #320 resumes for, so failing on them is right.
+          if grep -E 'could not load launcher helper|clone failed' "$log"; then
+            echo '::error::first converge failed GitHub clones or a launcher'
+            exit 1
           fi
-          init_status=$(dot init --status)
-          [[ $init_status == *'initialization: complete'* ]]
-          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
+          export PATH="$HOME/.local/bin:$PATH"
+          if ((init_status != 0)); then
+            # Registry-backed installs occasionally stall past their hook
+            # timeout (#320); resume the initialization transaction once.
+            echo 'Cold bootstrap failed; resuming initialization once' >&2
+            dot init --branch main "file://$origin"
+          fi
+          [[ $(dot init --status) == *'initialization: complete'* ]]
+          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$EXPECTED"
           test "$(git --git-dir="$HOME/.dotfiles" config --bool core.bare)" = false
           test "$(git --git-dir="$HOME/.dotfiles" config core.worktree)" = "$HOME"
           dot update
-          unset DOT_TEST_HOST_HOME
           # Diagnose through the Dot this bootstrap installed: the command a
-          # freshly bootstrapped user runs next. The stacked runtime drove
-          # init and update above, but it lives outside Dot's managed and
-          # development locations, which doctor rightly reports as a
-          # warning about the fixture rather than the client. Shdeps
-          # resolved `latest` on its own during init/update, so this Dot is
-          # usually the stacked release but can be newer if one was
-          # published mid-job, exactly as for a real user.
-          PATH=${PATH#"${DOT_STACK_DOT_BIN%/*}:"}
+          # freshly bootstrapped user runs next, now adopted by Shdeps with
+          # its public library published by the client's post hook.
           hash -r
           public_dot=$(command -v dot)
           test "$public_dot" = "$HOME/.local/bin/dot"
           test "$public_dot" -ef "$HOME/.local/share/cgraf78/dot/dot"
+          test "$HOME/.local/lib/dot" -ef "$HOME/.local/share/cgraf78/dot/lib/dot/public"
           printf 'doctor-runtime\tdot=%s\tversion=%s\n' \
             "$public_dot" "$(dot --version)"
+          test "$(command -v git)" = "$HOME/.local/bin/git"
+          git --version
           public_tmux=$(command -v tmux)
           test "$public_tmux" = "$HOME/.local/bin/tmux"
           "$HOME/.local/bin/shdeps" check tmux
           dot doctor
-          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$expected"
-          BASH
+          test "$(git --git-dir="$HOME/.dotfiles" rev-parse HEAD)" = "$EXPECTED"
