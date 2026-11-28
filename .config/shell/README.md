@@ -42,6 +42,11 @@ shell startup nor the seed hook invokes `gh auth token` or accesses a keyring.
 Shell startup only reads the file; interactive shells also repair its mode,
 while non-interactive shells avoid spawning `chmod` on every command.
 
+Accounts whose `github-transport` policy selects HTTPS also authenticate Git
+with this file, through the credential helper that hook registers; see
+`~/.config/dot/merge-hooks.d/github-transport/README.md`. Git then needs no SSH
+key registered with GitHub, so give such an account a read-scoped token.
+
 The development overlay owns the agent-specific aliases derived from
 `GH_TOKEN` and GitHub CLI preferences. Authentication availability does not
 depend on selecting the development profile.

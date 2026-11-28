@@ -54,10 +54,12 @@ program	.local/lib/dotfiles/doctor.d/lib/shdeps-links.sh
 program	.local/lib/dotfiles/doctor.d/lib/shell.sh
 program	.local/lib/dotfiles/doctor.d/lib/tools.sh
 program	.local/lib/dotfiles/doctor.d/lib/worktrees.sh
+program	.local/lib/dotfiles/git-credential-github-pat
 program	.local/lib/dotfiles/launcher-real.sh
 program	.local/lib/dotfiles/merge-hooks.d/agent-rules.sh
 program	.local/lib/dotfiles/merge-hooks.d/cron.sh
 program	.local/lib/dotfiles/merge-hooks.d/gh-token.sh
+program	.local/lib/dotfiles/merge-hooks.d/github-transport.sh
 program	.local/lib/dotfiles/merge-hooks.d/grok-rc.sh
 program	.local/lib/dotfiles/merge-hooks.d/ignore.sh
 program	.local/lib/dotfiles/merge-hooks.d/iterm2.sh
@@ -104,6 +106,7 @@ program	.local/lib/dotfiles/tests/dot-runtime-resolve.sh
 program	.local/lib/dotfiles/tests/fixtures.sh
 program	.local/lib/dotfiles/tests/footprint-test
 program	.local/lib/dotfiles/tests/github-token-test
+program	.local/lib/dotfiles/tests/github-transport-test
 program	.local/lib/dotfiles/tests/harness-isolation-test
 program	.local/lib/dotfiles/tests/helpers.sh
 program	.local/lib/dotfiles/tests/measure-profile-footprint
